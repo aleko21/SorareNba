@@ -8,7 +8,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Test 1: Environment variables
+    // Environment variables
     const SORARE_EMAIL = process.env.SORARE_EMAIL;
     const SORARE_PASSWORD = process.env.SORARE_PASSWORD;
     const SORARE_API_KEY = process.env.SORARE_API_KEY;
@@ -26,13 +26,15 @@ export default async function handler(req, res) {
       });
     }
 
-    // Test 2: Import modules
+    // Import modules
     console.log('Importing modules...');
     const { default: fetch } = await import('node-fetch');
-    const bcrypt = await import('bcryptjs');
+    
+    // ✅ Corretto: importa il default export di bcryptjs
+    const { default: bcrypt } = await import('bcryptjs');
     console.log('Modules imported successfully');
 
-    // Test 3: Get salt
+    // Get salt
     console.log('Getting salt for:', SORARE_EMAIL);
     const saltResponse = await fetch(`https://api.sorare.com/api/v1/users/${encodeURIComponent(SORARE_EMAIL)}`);
     
@@ -47,12 +49,12 @@ export default async function handler(req, res) {
       throw new Error('No salt returned from API');
     }
 
-    // Test 4: Hash password
+    // ✅ Ora bcrypt.hashSync dovrebbe funzionare
     console.log('Hashing password...');
     const hashedPassword = bcrypt.hashSync(SORARE_PASSWORD, saltData.salt);
     console.log('Password hashed successfully');
 
-    // Test 5: Login query
+    // Login query
     const loginQuery = `
       mutation SignInMutation($input: signInInput!) {
         signIn(input: $input) {
@@ -121,11 +123,12 @@ export default async function handler(req, res) {
 
     console.log('JWT token received, length:', jwtToken.length);
 
-    // Return success for now
+    // Return success with JWT info
     res.status(200).json({
       success: true,
       message: 'Login successful, JWT obtained',
       tokenLength: jwtToken.length,
+      tokenPreview: jwtToken.substring(0, 50) + '...',
       hasApiKey: !!SORARE_API_KEY
     });
 
