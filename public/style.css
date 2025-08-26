@@ -1608,3 +1608,101 @@ body {
         gap: var(--space-8);
     }
 }
+
+/* Stili OAuth Login */
+.oauth-login-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 400px;
+  padding: 2rem;
+}
+
+.oauth-login-card {
+  background: var(--card-bg);
+  border-radius: 16px;
+  padding: 3rem;
+  text-align: center;
+  max-width: 500px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+  border: 1px solid var(--border-color);
+}
+
+.oauth-login-card h2 {
+  margin-bottom: 1rem;
+  color: var(--text-primary);
+}
+
+.oauth-login-card p {
+  margin-bottom: 2rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.oauth-features {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-bottom: 2rem;
+  text-align: left;
+}
+
+.feature {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem;
+  background: var(--hover-bg);
+  border-radius: 8px;
+}
+
+.feature-icon {
+  font-size: 1.5rem;
+}
+
+.oauth-login-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 1rem;
+  background: #1a73e8;
+  color: white;
+  padding: 1rem 2rem;
+  border-radius: 12px;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 1.1rem;
+  transition: all 0.2s;
+  margin-bottom: 1.5rem;
+}
+
+.oauth-login-btn:hover {
+  background: #1557b0;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(26, 115, 232, 0.3);
+}
+
+.sorare-logo {
+  width: 24px;
+  height: 24px;
+}
+
+.oauth-disclaimer {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  margin-bottom: 1rem;
+}
+
+.demo-btn {
+  background: var(--hover-bg);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  padding: 0.75rem 1.5rem;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: all 0.2s;
+}
+
+.demo-btn:hover {
+  background: var(--border-color);
+}
