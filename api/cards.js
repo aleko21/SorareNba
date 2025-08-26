@@ -8,145 +8,27 @@ export default async function handler(req, res) {
   }
 
   try {
-    const SORARE_EMAIL = process.env.SORARE_EMAIL;
-    const SORARE_PASSWORD = process.env.SORARE_PASSWORD;
-    const SORARE_API_KEY = process.env.SORARE_API_KEY;
+    // Usa JWT da environment variable o query parameter
+    let jwtToken = process.env.SORARE_JWT_TOKEN || req.query.jwt;
     
-    // Codice 2FA dal query parameter
-    const twoFACode = req.query.code || req.query.tfa_code;
-    
-    if (!SORARE_EMAIL || !SORARE_PASSWORD) {
-      return res.status(500).json({ 
-        error: 'Missing credentials' 
+    if (!jwtToken) {
+      return res.status(401).json({
+        error: 'JWT token required',
+        message: 'Login su sorare.com, ottieni JWT e aggiungi: ?jwt=TOKEN',
+        instructions: [
+          '1. Login su sorare.com nel browser',
+          '2. F12 > Network > Ricarica',  
+          '3. Trova richiesta a api.sorare.com/graphql',
+          '4. Copia Authorization header JWT',
+          '5. Testa con: /api/cards?jwt=IL_TUO_JWT'
+        ]
       });
     }
 
     const { default: fetch } = await import('node-fetch');
-    const { default: bcrypt } = await import('bcryptjs');
+    const SORARE_API_KEY = process.env.SORARE_API_KEY;
 
-    // Step 1: Get salt
-    console.log('Getting salt...');
-    const saltResponse = await fetch(`https://api.sorare.com/api/v1/users/${encodeURIComponent(SORARE_EMAIL)}`);
-    const saltData = await saltResponse.json();
-    
-    if (!saltData.salt) {
-      throw new Error('No salt returned');
-    }
-
-    // Step 2: Hash password
-    const hashedPassword = bcrypt.hashSync(SORARE_PASSWORD, saltData.salt);
-
-    // Step 3: Login query (con o senza 2FA code)
-    let loginQuery, variables;
-    
-    if (!twoFACode) {
-      // Primo tentativo - senza codice 2FA
-      loginQuery = `
-        mutation SignInMutation($input: signInInput!) {
-          signIn(input: $input) {
-            jwtToken(aud: "sorare-nba-manager") {
-              token
-            }
-            errors {
-              message
-            }
-          }
-        }
-      `;
-      
-      variables = {
-        input: {
-          email: SORARE_EMAIL,
-          password: hashedPassword
-        }
-      };
-    } else {
-      // Secondo tentativo - con codice 2FA
-      loginQuery = `
-        mutation SignInMutation($input: signInInput!) {
-          signIn(input: $input) {
-            jwtToken(aud: "sorare-nba-manager") {
-              token
-            }
-            errors {
-              message
-            }
-          }
-        }
-      `;
-      
-      variables = {
-        input: {
-          email: SORARE_EMAIL,
-          password: hashedPassword,
-          otpAttempt: twoFACode  // Campo per codice 2FA
-        }
-      };
-    }
-
-    console.log(twoFACode ? 'Login with 2FA code...' : 'Initial login attempt...');
-
-    const loginHeaders = {
-      'Content-Type': 'application/json'
-    };
-    
-    if (SORARE_API_KEY) {
-      loginHeaders['APIKEY'] = SORARE_API_KEY;
-    }
-
-    const loginResponse = await fetch('https://api.sorare.com/graphql', {
-      method: 'POST',
-      headers: loginHeaders,
-      body: JSON.stringify({
-        query: loginQuery,
-        variables: variables
-      })
-    });
-
-    const loginData = await loginResponse.json();
-    console.log('Login response:', JSON.stringify(loginData, null, 2));
-
-    // Gestisci diversi tipi di errori
-    const errors = loginData.data?.signIn?.errors || [];
-    
-    for (const error of errors) {
-      if (error.message === 'authenticate_from_new_country') {
-        return res.status(202).json({
-          success: false,
-          requiresTwoFA: true,
-          message: 'Codice di verifica richiesto',
-          instructions: [
-            '1. Controlla la tua email per il codice di verifica',
-            '2. Usa: /api/cards?code=IL_TUO_CODICE',
-            '3. Il codice è di solito 6 cifre'
-          ],
-          nextStep: `${req.headers.host}/api/cards?code=INSERISCI_CODICE_QUI`
-        });
-      }
-      
-      if (error.message.includes('otp') || error.message.includes('code')) {
-        return res.status(400).json({
-          error: 'Codice di verifica non valido',
-          details: error.message,
-          instructions: 'Riprova con: /api/cards?code=NUOVO_CODICE'
-        });
-      }
-    }
-
-    // Login riuscito!
-    const jwtToken = loginData.data?.signIn?.jwtToken?.token;
-    
-    if (!jwtToken) {
-      return res.status(400).json({
-        error: 'Login failed',
-        details: errors,
-        loginData: loginData
-      });
-    }
-
-    console.log('✅ Login successful! JWT token received');
-
-    // Ora usa il JWT per ottenere le carte
+    // Query per carte Limited
     const QUERY_LIMITED_CARDS = `
       query {
         currentUser {
@@ -175,33 +57,42 @@ export default async function handler(req, res) {
       }
     `;
 
-    const cardsHeaders = {
+    console.log('Using JWT token, length:', jwtToken.length);
+    console.log('JWT preview:', jwtToken.substring(0, 50) + '...');
+
+    const headers = {
       'Authorization': `Bearer ${jwtToken}`,
       'Content-Type': 'application/json',
     };
     
     if (SORARE_API_KEY) {
-      cardsHeaders['APIKEY'] = SORARE_API_KEY;
+      headers['APIKEY'] = SORARE_API_KEY;
+      console.log('Using API key for higher rate limits');
     }
 
-    const cardsResponse = await fetch('https://api.sorare.com/graphql', {
+    const response = await fetch('https://api.sorare.com/graphql', {
       method: 'POST',
-      headers: cardsHeaders,
+      headers: headers,
       body: JSON.stringify({
         query: QUERY_LIMITED_CARDS
       })
     });
 
-    const cardsData = await cardsResponse.json();
+    if (!response.ok) {
+      throw new Error(`GraphQL request failed: ${response.status} ${response.statusText}`);
+    }
 
-    if (cardsData.errors) {
+    const data = await response.json();
+
+    if (data.errors) {
       return res.status(400).json({
-        error: 'GraphQL errors getting cards',
-        details: cardsData.errors
+        error: 'GraphQL errors',
+        details: data.errors,
+        hint: 'JWT potrebbe essere scaduto, ottienine uno nuovo dal browser'
       });
     }
 
-    const cards = cardsData.data?.currentUser?.nbaCards?.nodes || [];
+    const cards = data.data?.currentUser?.nbaCards?.nodes || [];
     
     // Aggiungi proiezioni simulate
     const cardsWithProjections = cards.map(card => ({
@@ -215,14 +106,14 @@ export default async function handler(req, res) {
       success: true,
       data: cardsWithProjections,
       count: cardsWithProjections.length,
-      message: '🎉 Carte Limited caricate con successo!',
-      jwtReceived: true
+      message: `🎉 ${cardsWithProjections.length} carte Limited caricate con successo!`,
+      timestamp: new Date().toISOString()
     });
 
   } catch (error) {
-    console.error('Function error:', error);
+    console.error('API Error:', error);
     res.status(500).json({
-      error: 'Function crashed',
+      error: 'Errore nel recupero delle carte',
       message: error.message,
       stack: error.stack
     });
