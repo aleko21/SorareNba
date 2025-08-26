@@ -1,5 +1,3 @@
-import fetch from 'node-fetch';
-
 const API_KEY = process.env.SORARE_API_KEY;
 const GRAPHQL_ENDPOINT = 'https://api.sorare.com/graphql';
 
@@ -32,7 +30,7 @@ const QUERY_LIMITED_CARDS = `
 `;
 
 export default async function handler(req, res) {
-  // Abilita CORS
+  // Headers CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -46,6 +44,18 @@ export default async function handler(req, res) {
   }
 
   try {
+    // Dynamic import per node-fetch v3.x
+    const { default: fetch } = await import('node-fetch');
+    
+    console.log('API_KEY present:', !!API_KEY);
+
+    if (!API_KEY) {
+      return res.status(500).json({ 
+        error: 'API key non configurata',
+        details: 'SORARE_API_KEY environment variable missing'
+      });
+    }
+
     const response = await fetch(GRAPHQL_ENDPOINT, {
       method: 'POST',
       headers: {
@@ -58,14 +68,20 @@ export default async function handler(req, res) {
     });
 
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      const errorText = await response.text();
+      console.log('Error response:', errorText);
+      throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
     }
 
     const data = await response.json();
+    console.log('API Response:', JSON.stringify(data, null, 2));
 
     if (data.errors) {
       console.error('GraphQL errors:', data.errors);
-      return res.status(400).json({ error: 'GraphQL errors', details: data.errors });
+      return res.status(400).json({ 
+        error: 'GraphQL errors', 
+        details: data.errors 
+      });
     }
 
     const cards = data.data?.currentUser?.nbaCards?.nodes || [];
@@ -88,7 +104,8 @@ export default async function handler(req, res) {
     console.error('API Error:', error);
     res.status(500).json({ 
       error: 'Errore nel recupero delle carte', 
-      message: error.message 
+      message: error.message,
+      stack: error.stack 
     });
   }
 }
