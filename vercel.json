@@ -2,12 +2,15 @@
   "version": 2,
   "functions": {
     "api/sorare.js": {
-      "runtime": "@vercel/node"
-    },
-    "api/projections.js": {
-      "runtime": "@vercel/node"
+      "runtime": "nodejs18.x"
     }
   },
+  "rewrites": [
+    {
+      "source": "/",
+      "destination": "/index.html"
+    }
+  ],
   "headers": [
     {
       "source": "/api/(.*)",
@@ -17,7 +20,7 @@
           "value": "*"
         },
         {
-          "key": "Access-Control-Allow-Methods", 
+          "key": "Access-Control-Allow-Methods",
           "value": "GET, POST, PUT, DELETE, OPTIONS"
         },
         {
@@ -26,14 +29,5 @@
         }
       ]
     }
-  ],
-  "rewrites": [
-    {
-      "source": "/",
-      "destination": "/index.html"
-    }
-  ],
-  "env": {
-    "NODE_ENV": "production"
-  }
+  ]
 }
