@@ -1,4 +1,4 @@
-// api/cards.js - Versione OAuth (sostituisce completamente il file esistente)
+// api/cards.js - Torna all'API Key (niente OAuth)
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -8,115 +8,83 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  if (req.method !== 'GET') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
-
   try {
-    // Ottieni access token dai cookies
-    const cookies = req.headers.cookie || '';
-    const tokenMatch = cookies.match(/sorare_token=([^;]+)/);
+    const SORARE_API_KEY = process.env.SORARE_API_KEY;
     
-    if (!tokenMatch) {
-      return res.status(401).json({
-        error: 'Not authenticated',
-        message: 'Please login via OAuth first',
-        loginUrl: '/api/auth/sorare',
-        instructions: [
-          '1. Click on "Login with Sorare" button',
-          '2. Authorize the application on Sorare.com',
-          '3. You will be redirected back with access to your cards'
-        ]
+    if (!SORARE_API_KEY) {
+      return res.status(500).json({
+        error: 'API Key non configurata',
+        message: 'Configura SORARE_API_KEY nelle environment variables'
       });
     }
-    
-    const accessToken = tokenMatch[1];
-    console.log('Using OAuth access token, length:', accessToken.length);
-    
+
     const { default: fetch } = await import('node-fetch');
-    
-    // Query per carte NBA Limited
-    const nbaCardsQuery = `
+
+    // Query pubblica per testare l'API key
+    const testQuery = `
       query {
-        currentUser {
-          id
-          slug
-          nickname
-          nbaCards {
-            totalCount
-            nodes {
-              id
-              slug
-              name
-              rarity
-              serialNumber
-              pictureUrl
-              xp
-              grade
-              seasonYear
-              player {
-                displayName
-                slug
-                position
-                age
-                team {
-                  name
-                  abbreviation
-                }
+        cards(first: 10) {
+          nodes {
+            id
+            slug
+            name
+            rarity
+            player {
+              displayName
+              position
+              team {
+                name
+                abbreviation
               }
-              onSale
             }
           }
         }
       }
     `;
 
-    console.log('Fetching NBA cards with OAuth token...');
+    console.log('Testing API with public query...');
 
     const response = await fetch('https://api.sorare.com/graphql', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'APIKEY': SORARE_API_KEY  // Come dice l'assistenza Sorare
       },
       body: JSON.stringify({
-        query: nbaCardsQuery
+        query: testQuery
       })
     });
 
     if (!response.ok) {
-      throw new Error(`GraphQL request failed: ${response.status} ${response.statusText}`);
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
 
     const data = await response.json();
-    console.log('GraphQL response:', JSON.stringify(data, null, 2));
+    console.log('API Response:', JSON.stringify(data, null, 2));
 
     if (data.errors) {
-      // Se token è scaduto, chiedi nuovo login
-      if (data.errors.some(err => err.message.includes('token') || err.message.includes('unauthorized'))) {
-        res.setHeader('Set-Cookie', 'sorare_token=; HttpOnly; Secure; SameSite=Strict; Max-Age=0; Path=/');
-        return res.status(401).json({
-          error: 'Token expired',
-          message: 'Please login again',
-          loginUrl: '/api/auth/sorare'
-        });
-      }
-      
       return res.status(400).json({
         error: 'GraphQL errors',
-        details: data.errors
+        details: data.errors,
+        hint: 'Verifica che l\'API key sia valida'
       });
     }
 
-    const userData = data.data?.currentUser;
-    const cards = userData?.nbaCards?.nodes || [];
-    const totalCount = userData?.nbaCards?.totalCount || 0;
+    const cards = data.data?.cards?.nodes || [];
     
-    console.log(`Found ${cards.length} NBA cards for user: ${userData?.nickname}`);
-
-    // Aggiungi proiezioni simulate per ogni carta
-    const cardsWithProjections = cards.map(card => ({
+    // Simula che siano "NBA cards" per test
+    const nbaCards = cards.filter(card => 
+      card.player?.team?.name && 
+      card.player?.position
+    ).map(card => ({
       ...card,
+      // Aggiungi dati mancanti per compatibilità
+      serialNumber: Math.floor(Math.random() * 1000) + 1,
+      pictureUrl: `https://via.placeholder.com/200x300/ff6b35/white?text=${card.player.displayName.split(' ').map(n => n[0]).join('')}`,
+      xp: Math.floor(Math.random() * 500) + 100,
+      grade: null,
+      seasonYear: '2024',
+      onSale: Math.random() > 0.8,
       projection: Math.round((Math.random() * 30 + 40) * 10) / 10,
       last10avg: Math.round((Math.random() * 25 + 35) * 10) / 10,
       games_this_week: Math.floor(Math.random() * 4) + 1,
@@ -125,24 +93,19 @@ export default async function handler(req, res) {
 
     res.status(200).json({
       success: true,
-      data: cardsWithProjections,
-      count: cardsWithProjections.length,
-      totalCount: totalCount,
-      user: {
-        nickname: userData?.nickname,
-        slug: userData?.slug
-      },
-      message: `🎉🏀 ${cardsWithProjections.length} carte NBA caricate dal tuo account Sorare (${userData?.nickname})!`,
-      timestamp: new Date().toISOString(),
-      authMethod: 'OAuth 2.0'
+      data: nbaCards,
+      count: nbaCards.length,
+      message: `✅ ${nbaCards.length} carte caricate con API Key!`,
+      note: 'Dati pubblici Sorare (per carte personali serve autenticazione diversa)',
+      timestamp: new Date().toISOString()
     });
 
   } catch (error) {
     console.error('API Error:', error);
     res.status(500).json({
-      error: 'Server error',
+      error: 'Errore connessione API',
       message: error.message,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      stack: error.stack
     });
   }
 }
