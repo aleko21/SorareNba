@@ -1,90 +1,65 @@
-// api/cards.js - QUERY CORRETTA
+// api/cards.js - TEST MINIMALE
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   
   try {
     const { default: fetch } = await import('node-fetch');
     
-    // ✅ QUERY CORRETTA basata sullo schema reale
-    const CORRECT_QUERY = `
+    // ✅ Query MINIMALE per test connessione
+    const MINIMAL_QUERY = `
       query {
-        currentUser {
-          nbaCards {
-            nodes {
-              id
-              slug
-              serialNumber
-              name
-              pictureUrl
-              rarity
-              seasonYear
-              player {
-                displayName
-                slug
-                position
-                age
-                team {
-                  name
-                  abbreviation
-                }
-              }
-              xp
-              grade
-            }
-          }
-        }
+        __typename
       }
     `;
 
-    console.log('Testing CORRECTED NBA query...');
+    console.log('Testing minimal GraphQL query...');
 
     const response = await fetch('https://api.sorare.com/graphql', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        // Test prima SENZA autenticazione
       },
       body: JSON.stringify({
-        query: CORRECT_QUERY
+        query: MINIMAL_QUERY
       })
     });
 
+    console.log('Response status:', response.status);
+    console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+
+    const responseText = await response.text();
+    console.log('Raw response:', responseText);
+
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    console.log('Corrected query response:', JSON.stringify(data, null, 2));
-
-    if (data.errors) {
-      return res.status(400).json({
-        error: 'GraphQL errors',
-        details: data.errors,
-        hint: 'Probabilmente serve autenticazione per currentUser'
+      return res.status(response.status).json({
+        error: `HTTP ${response.status}`,
+        responseText: responseText,
+        headers: Object.fromEntries(response.headers.entries())
       });
     }
 
-    const cards = data.data?.currentUser?.nbaCards?.nodes || [];
-    
-    // Simula proiezioni per le carte ricevute
-    const cardsWithProjections = cards.map(card => ({
-      ...card,
-      projection: Math.round((Math.random() * 30 + 40) * 10) / 10,
-      last10avg: Math.round((Math.random() * 25 + 35) * 10) / 10,
-      games_this_week: Math.floor(Math.random() * 4) + 1
-    }));
+    let data;
+    try {
+      data = JSON.parse(responseText);
+    } catch (parseError) {
+      return res.status(500).json({
+        error: 'JSON parse error',
+        responseText: responseText,
+        parseError: parseError.message
+      });
+    }
 
     res.status(200).json({
       success: true,
-      data: cardsWithProjections,
-      count: cardsWithProjections.length,
-      message: cards.length > 0 ? '✅ Carte NBA caricate!' : 'Nessuna carta NBA (serve autenticazione)'
+      message: '✅ Connessione GraphQL funziona!',
+      data: data,
+      rawResponse: responseText
     });
 
   } catch (error) {
-    console.error('API Error:', error);
+    console.error('Connection Error:', error);
     res.status(500).json({
-      error: 'Errore connessione API',
+      error: 'Connection failed',
       message: error.message,
       stack: error.stack
     });
