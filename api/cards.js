@@ -1,4 +1,4 @@
-// api/cards.js - Query con campi REALI
+// api/cards.js - Introspection per scoprire schema reale
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   
@@ -6,36 +6,44 @@ export default async function handler(req, res) {
     const { default: fetch } = await import('node-fetch');
     const SORARE_API_KEY = process.env.SORARE_API_KEY;
     
-    // Query con campi REALI dallo schema Sorare
+    const testType = req.query.test || 'rootFields';
+    
     const queries = {
-      // Livello 1: Info pubbliche sui giocatori NBA
-      players: `
+      // Scopri i campi root disponibili
+      rootFields: `
         query {
-          players(first: 5) {
-            nodes {
-              slug
-              displayName
-              position
+          __type(name: "Query") {
+            fields {
+              name
+              description
             }
           }
         }
       `,
       
-      // Livello 2: Carte pubbliche
-      cards: `
+      // Test query semplici senza connections
+      simpleTest: `
         query {
-          cards(first: 5) {
-            nodes {
-              id
-              slug
+          __schema {
+            queryType {
               name
             }
           }
         }
       `,
       
-      // Livello 3: Current user (richiede auth)
-      currentUser: `
+      // Test currentUser (la query che ci interessa di più)
+      currentUserTest: `
+        query {
+          currentUser {
+            __typename
+            id
+          }
+        }
+      `,
+      
+      // Test con API key
+      apiKeyTest: `
         query {
           currentUser {
             id
@@ -43,55 +51,27 @@ export default async function handler(req, res) {
             nickname
           }
         }
-      `,
-      
-      // Livello 4: NBA cards del current user (obiettivo finale)
-      nbaCards: `
-        query {
-          currentUser {
-            nbaCards {
-              totalCount
-              nodes {
-                id
-                slug
-                name
-                rarity
-                player {
-                  displayName
-                  position
-                  team {
-                    name
-                    abbreviation
-                  }
-                }
-                xp
-                grade
-              }
-            }
-          }
-        }
       `
     };
 
-    const testQuery = req.query.test || 'players'; // Default a query pubblica
-    const selectedQuery = queries[testQuery];
-
+    const selectedQuery = queries[testType];
+    
     if (!selectedQuery) {
       return res.status(400).json({
-        error: 'Query non valida',
+        error: 'Test non valido',
         availableTests: Object.keys(queries),
-        suggestion: 'Prova: /api/cards?test=players'
+        suggestion: 'Prova: /api/cards?test=rootFields'
       });
     }
 
-    console.log(`Testing REAL query: ${testQuery}`);
+    console.log(`Running introspection test: ${testType}`);
 
     const headers = {
       'Content-Type': 'application/json',
     };
 
-    // Aggiungi API key per query autenticate
-    if (SORARE_API_KEY && (testQuery === 'currentUser' || testQuery === 'nbaCards')) {
+    // Usa API key per test autenticati
+    if (SORARE_API_KEY && (testType === 'currentUserTest' || testType === 'apiKeyTest')) {
       headers['APIKEY'] = SORARE_API_KEY;
       console.log('Using API key for authenticated query');
     }
@@ -105,13 +85,13 @@ export default async function handler(req, res) {
     });
 
     const responseText = await response.text();
-    console.log(`Response for ${testQuery}:`, responseText);
+    console.log(`Response for ${testType}:`, responseText);
 
     if (!response.ok) {
       return res.status(response.status).json({
         error: `HTTP ${response.status}`,
         responseText: responseText,
-        query: testQuery
+        test: testType
       });
     }
 
@@ -121,42 +101,45 @@ export default async function handler(req, res) {
       return res.status(400).json({
         error: 'GraphQL errors',
         details: data.errors,
-        query: testQuery,
-        hint: testQuery === 'players' || testQuery === 'cards' ? 'Query pubblica fallita - campo potrebbe non esistere' : 'Serve autenticazione'
+        test: testType,
+        hint: testType.includes('currentUser') ? 'Potrebbe servire autenticazione diversa' : 'Schema introspection bloccata'
       });
     }
 
-    // SUCCESS! Processamento specifico per NBA cards
-    if (testQuery === 'nbaCards' && data.data?.currentUser?.nbaCards?.nodes) {
-      const cards = data.data.currentUser.nbaCards.nodes;
-      const cardsWithProjections = cards.map(card => ({
-        ...card,
-        projection: Math.round((Math.random() * 30 + 40) * 10) / 10,
-        last10avg: Math.round((Math.random() * 25 + 35) * 10) / 10,
-        games_this_week: Math.floor(Math.random() * 4) + 1
-      }));
-      
+    // Se è rootFields, mostra i campi disponibili in modo leggibile
+    if (testType === 'rootFields' && data.data?.__type?.fields) {
+      const fields = data.data.__type.fields.map(field => field.name).sort();
       return res.status(200).json({
         success: true,
-        data: cardsWithProjections,
-        count: cardsWithProjections.length,
-        message: `🎉🏀 ${cardsWithProjections.length} carte NBA Limited caricate dal tuo account!`,
-        query: testQuery
+        message: '✅ Campi root disponibili nell\'API Sorare:',
+        availableFields: fields,
+        totalFields: fields.length,
+        suggestion: 'Ora prova: /api/cards?test=currentUserTest'
+      });
+    }
+
+    // Se currentUser funziona, è un grande passo avanti
+    if (testType.includes('currentUser') && data.data?.currentUser) {
+      return res.status(200).json({
+        success: true,
+        message: '🎉 CurrentUser funziona! API Key valida!',
+        userData: data.data.currentUser,
+        nextStep: 'Ora possiamo cercare i campi NBA cards',
+        test: testType
       });
     }
 
     res.status(200).json({
       success: true,
       data: data.data,
-      message: `✅ Query ${testQuery} completata con successo!`,
-      query: testQuery,
-      rawResponse: responseText
+      message: `✅ Test ${testType} completato!`,
+      test: testType
     });
 
   } catch (error) {
     console.error('API Error:', error);
     res.status(500).json({
-      error: 'Errore query',
+      error: 'Errore test',
       message: error.message
     });
   }
