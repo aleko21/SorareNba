@@ -1,0 +1,31 @@
+{
+  "name": "sorare-nba-strategy-manager",
+  "version": "1.0.0",
+  "description": "Sorare NBA Strategy Manager with real API integration",
+  "main": "index.html",
+  "scripts": {
+    "dev": "vercel dev",
+    "build": "echo 'Static site - no build needed'",
+    "deploy": "vercel --prod",
+    "start": "vercel dev"
+  },
+  "dependencies": {
+    "node-fetch": "^3.3.2"
+  },
+  "devDependencies": {
+    "vercel": "^32.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "sorare",
+    "nba",
+    "fantasy",
+    "basketball",
+    "strategy",
+    "api"
+  ],
+  "author": "Your Name",
+  "license": "MIT"
+}
