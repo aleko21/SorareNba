@@ -1,90 +1,106 @@
-// api/cards.js - Torna all'API Key (niente OAuth)
+// api/cards.js - USA JWT salvato, non fa più login
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-
+  
   try {
     const SORARE_API_KEY = process.env.SORARE_API_KEY;
     
-    if (!SORARE_API_KEY) {
-      return res.status(500).json({
-        error: 'API Key non configurata',
-        message: 'Configura SORARE_API_KEY nelle environment variables'
+    // Ottieni JWT dal cookie
+    const cookies = req.headers.cookie || '';
+    const jwtMatch = cookies.match(/sorare_jwt=([^;]+)/);
+    
+    if (!jwtMatch) {
+      return res.status(401).json({
+        error: 'Non autenticato',
+        message: 'Devi fare login prima di accedere alle carte',
+        loginRequired: true,
+        loginUrl: '/api/auth/login',
+        instructions: [
+          '1. Vai a /api/auth/login per fare login',
+          '2. Completa il processo 2FA se richiesto',
+          '3. Torna qui per vedere le tue carte'
+        ]
       });
     }
 
+    const jwt = jwtMatch[1];
     const { default: fetch } = await import('node-fetch');
 
-    // Query pubblica per testare l'API key
-    const testQuery = `
+    console.log('🏀 Caricando carte NBA con JWT salvato...');
+
+    const nbaQuery = `
       query {
-        cards(first: 10) {
-          nodes {
-            id
-            slug
-            name
-            rarity
-            player {
-              displayName
-              position
-              team {
-                name
-                abbreviation
+        currentUser {
+          id
+          slug
+          nickname
+          nbaCards {
+            totalCount
+            nodes {
+              id
+              slug
+              name
+              rarity
+              serialNumber
+              pictureUrl
+              xp
+              grade
+              seasonYear
+              player {
+                displayName
+                slug
+                position
+                age
+                team {
+                  name
+                  abbreviation
+                }
               }
+              onSale
             }
           }
         }
       }
     `;
 
-    console.log('Testing API with public query...');
-
     const response = await fetch('https://api.sorare.com/graphql', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        'APIKEY': SORARE_API_KEY  // Come dice l'assistenza Sorare
+        'Authorization': `Bearer ${jwt}`,
+        'APIKEY': SORARE_API_KEY,
+        'JWT-AUD': 'sorare-nba-manager',
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        query: testQuery
+        query: nbaQuery
       })
     });
 
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
-
     const data = await response.json();
-    console.log('API Response:', JSON.stringify(data, null, 2));
 
     if (data.errors) {
+      // JWT scaduto o invalido
+      if (data.errors.some(err => err.message.includes('token') || err.message.includes('unauthorized'))) {
+        res.setHeader('Set-Cookie', 'sorare_jwt=; HttpOnly; Max-Age=0; Path=/');
+        return res.status(401).json({
+          error: 'JWT scaduto',
+          message: 'Fai login di nuovo',
+          loginUrl: '/api/auth/login'
+        });
+      }
+      
       return res.status(400).json({
-        error: 'GraphQL errors',
-        details: data.errors,
-        hint: 'Verifica che l\'API key sia valida'
+        error: 'Errore GraphQL',
+        details: data.errors
       });
     }
 
-    const cards = data.data?.cards?.nodes || [];
+    const userData = data.data?.currentUser;
+    const cards = userData?.nbaCards?.nodes || [];
     
-    // Simula che siano "NBA cards" per test
-    const nbaCards = cards.filter(card => 
-      card.player?.team?.name && 
-      card.player?.position
-    ).map(card => ({
+    // Aggiungi proiezioni
+    const cardsWithProjections = cards.map(card => ({
       ...card,
-      // Aggiungi dati mancanti per compatibilità
-      serialNumber: Math.floor(Math.random() * 1000) + 1,
-      pictureUrl: `https://via.placeholder.com/200x300/ff6b35/white?text=${card.player.displayName.split(' ').map(n => n[0]).join('')}`,
-      xp: Math.floor(Math.random() * 500) + 100,
-      grade: null,
-      seasonYear: '2024',
-      onSale: Math.random() > 0.8,
       projection: Math.round((Math.random() * 30 + 40) * 10) / 10,
       last10avg: Math.round((Math.random() * 25 + 35) * 10) / 10,
       games_this_week: Math.floor(Math.random() * 4) + 1,
@@ -93,19 +109,23 @@ export default async function handler(req, res) {
 
     res.status(200).json({
       success: true,
-      data: nbaCards,
-      count: nbaCards.length,
-      message: `✅ ${nbaCards.length} carte caricate con API Key!`,
-      note: 'Dati pubblici Sorare (per carte personali serve autenticazione diversa)',
+      data: cardsWithProjections,
+      count: cardsWithProjections.length,
+      totalCount: userData?.nbaCards?.totalCount || 0,
+      user: {
+        nickname: userData?.nickname,
+        slug: userData?.slug
+      },
+      message: `🏀 ${cardsWithProjections.length} carte NBA di ${userData?.nickname}!`,
+      authMethod: 'JWT + API Key (separati)',
       timestamp: new Date().toISOString()
     });
 
   } catch (error) {
-    console.error('API Error:', error);
+    console.error('Cards error:', error);
     res.status(500).json({
-      error: 'Errore connessione API',
-      message: error.message,
-      stack: error.stack
+      error: 'Errore caricamento carte',
+      message: error.message
     });
   }
 }
