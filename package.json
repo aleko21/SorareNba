@@ -1,15 +1,9 @@
 {
   "name": "sorare-nba-manager",
   "version": "1.0.0",
-  "description": "Gestione strategica carte SorareNBA",
-  "main": "index.js",
-  "scripts": {
-    "dev": "vercel dev",
-    "build": "echo 'Build completed'",
-    "start": "vercel dev"
-  },
   "dependencies": {
-    "node-fetch": "^3.3.2"
+    "node-fetch": "^3.3.2",
+    "bcryptjs": "^2.4.3"
   },
   "engines": {
     "node": ">=18.0.0"
