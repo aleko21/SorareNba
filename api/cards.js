@@ -1,44 +1,51 @@
-// api/cards.js - Versione con query PUBBLICA
+// api/cards.js - QUERY CORRETTA
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   
   try {
     const { default: fetch } = await import('node-fetch');
     
-    // ✅ Query PUBBLICA (non richiede autenticazione)
-    const PUBLIC_QUERY = `
+    // ✅ QUERY CORRETTA basata sullo schema reale
+    const CORRECT_QUERY = `
       query {
-        cards(first: 10, rarities: [limited]) {
-          nodes {
-            id
-            slug
-            pictureUrl
-            player {
-              displayName
-              team {
-                name
-                abbreviation
+        currentUser {
+          nbaCards {
+            nodes {
+              id
+              slug
+              serialNumber
+              name
+              pictureUrl
+              rarity
+              seasonYear
+              player {
+                displayName
+                slug
+                position
+                age
+                team {
+                  name
+                  abbreviation
+                }
               }
-              position
-              age
+              xp
+              grade
             }
-            rarity
-            onSale
           }
         }
       }
     `;
 
-    console.log('Testing PUBLIC query without authentication...');
+    console.log('Testing CORRECTED NBA query...');
 
     const response = await fetch('https://api.sorare.com/graphql', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        // NO AUTHORIZATION - solo query pubblica
+        // Test prima SENZA autenticazione
       },
       body: JSON.stringify({
-        query: PUBLIC_QUERY
+        query: CORRECT_QUERY
       })
     });
 
@@ -47,18 +54,19 @@ export default async function handler(req, res) {
     }
 
     const data = await response.json();
-    console.log('Public API Response:', JSON.stringify(data, null, 2));
+    console.log('Corrected query response:', JSON.stringify(data, null, 2));
 
     if (data.errors) {
       return res.status(400).json({
         error: 'GraphQL errors',
-        details: data.errors
+        details: data.errors,
+        hint: 'Probabilmente serve autenticazione per currentUser'
       });
     }
 
-    const cards = data.data?.cards?.nodes || [];
+    const cards = data.data?.currentUser?.nbaCards?.nodes || [];
     
-    // Simula che siano "tue" carte per test
+    // Simula proiezioni per le carte ricevute
     const cardsWithProjections = cards.map(card => ({
       ...card,
       projection: Math.round((Math.random() * 30 + 40) * 10) / 10,
@@ -70,8 +78,7 @@ export default async function handler(req, res) {
       success: true,
       data: cardsWithProjections,
       count: cardsWithProjections.length,
-      message: '✅ API Sorare funziona! (Dati pubblici Limited)',
-      note: 'Per dati personali serve processo diverso di autenticazione'
+      message: cards.length > 0 ? '✅ Carte NBA caricate!' : 'Nessuna carta NBA (serve autenticazione)'
     });
 
   } catch (error) {
