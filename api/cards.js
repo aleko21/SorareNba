@@ -1,4 +1,4 @@
-// api/cards.js - Test query graduali
+// api/cards.js - Query con campi REALI
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   
@@ -6,19 +6,35 @@ export default async function handler(req, res) {
     const { default: fetch } = await import('node-fetch');
     const SORARE_API_KEY = process.env.SORARE_API_KEY;
     
-    // Test diversi livelli di query
+    // Query con campi REALI dallo schema Sorare
     const queries = {
-      // Livello 1: Sport info (pubblico)
-      sports: `
+      // Livello 1: Info pubbliche sui giocatori NBA
+      players: `
         query {
-          sports {
-            slug
-            displayName
+          players(first: 5) {
+            nodes {
+              slug
+              displayName
+              position
+            }
           }
         }
       `,
       
-      // Livello 2: Current user (richiede auth)
+      // Livello 2: Carte pubbliche
+      cards: `
+        query {
+          cards(first: 5) {
+            nodes {
+              id
+              slug
+              name
+            }
+          }
+        }
+      `,
+      
+      // Livello 3: Current user (richiede auth)
       currentUser: `
         query {
           currentUser {
@@ -29,7 +45,7 @@ export default async function handler(req, res) {
         }
       `,
       
-      // Livello 3: NBA cards del current user
+      // Livello 4: NBA cards del current user (obiettivo finale)
       nbaCards: `
         query {
           currentUser {
@@ -40,6 +56,16 @@ export default async function handler(req, res) {
                 slug
                 name
                 rarity
+                player {
+                  displayName
+                  position
+                  team {
+                    name
+                    abbreviation
+                  }
+                }
+                xp
+                grade
               }
             }
           }
@@ -47,23 +73,24 @@ export default async function handler(req, res) {
       `
     };
 
-    const testQuery = req.query.test || 'sports'; // Default a query pubblica
+    const testQuery = req.query.test || 'players'; // Default a query pubblica
     const selectedQuery = queries[testQuery];
 
     if (!selectedQuery) {
       return res.status(400).json({
         error: 'Query non valida',
-        availableTests: Object.keys(queries)
+        availableTests: Object.keys(queries),
+        suggestion: 'Prova: /api/cards?test=players'
       });
     }
 
-    console.log(`Testing query: ${testQuery}`);
+    console.log(`Testing REAL query: ${testQuery}`);
 
     const headers = {
       'Content-Type': 'application/json',
     };
 
-    // Aggiungi API key se disponibile (per query che richiedono auth)
+    // Aggiungi API key per query autenticate
     if (SORARE_API_KEY && (testQuery === 'currentUser' || testQuery === 'nbaCards')) {
       headers['APIKEY'] = SORARE_API_KEY;
       console.log('Using API key for authenticated query');
@@ -78,7 +105,7 @@ export default async function handler(req, res) {
     });
 
     const responseText = await response.text();
-    console.log('Response text:', responseText);
+    console.log(`Response for ${testQuery}:`, responseText);
 
     if (!response.ok) {
       return res.status(response.status).json({
@@ -95,11 +122,11 @@ export default async function handler(req, res) {
         error: 'GraphQL errors',
         details: data.errors,
         query: testQuery,
-        hint: testQuery === 'sports' ? 'Query pubblica fallita' : 'Probabilmente serve autenticazione corretta'
+        hint: testQuery === 'players' || testQuery === 'cards' ? 'Query pubblica fallita - campo potrebbe non esistere' : 'Serve autenticazione'
       });
     }
 
-    // Se è la query NBA cards, aggiungi proiezioni simulate
+    // SUCCESS! Processamento specifico per NBA cards
     if (testQuery === 'nbaCards' && data.data?.currentUser?.nbaCards?.nodes) {
       const cards = data.data.currentUser.nbaCards.nodes;
       const cardsWithProjections = cards.map(card => ({
@@ -113,7 +140,7 @@ export default async function handler(req, res) {
         success: true,
         data: cardsWithProjections,
         count: cardsWithProjections.length,
-        message: `🎉 ${cardsWithProjections.length} carte NBA caricate!`,
+        message: `🎉🏀 ${cardsWithProjections.length} carte NBA Limited caricate dal tuo account!`,
         query: testQuery
       });
     }
@@ -121,7 +148,7 @@ export default async function handler(req, res) {
     res.status(200).json({
       success: true,
       data: data.data,
-      message: `✅ Query ${testQuery} completata!`,
+      message: `✅ Query ${testQuery} completata con successo!`,
       query: testQuery,
       rawResponse: responseText
     });
@@ -130,8 +157,7 @@ export default async function handler(req, res) {
     console.error('API Error:', error);
     res.status(500).json({
       error: 'Errore query',
-      message: error.message,
-      stack: error.stack
+      message: error.message
     });
   }
 }
