@@ -1,6 +1,5 @@
-// api/cards.js - Versione Completa con Gestione 2FA Corretta
+// api/cards.js - Correzione finale
 export default async function handler(req, res) {
-  // Headers CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -9,31 +8,22 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  if (req.method !== 'GET') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
-
   try {
-    // Environment variables
     const SORARE_EMAIL = process.env.SORARE_EMAIL;
     const SORARE_PASSWORD = process.env.SORARE_PASSWORD;
     const SORARE_API_KEY = process.env.SORARE_API_KEY;
     
     if (!SORARE_EMAIL || !SORARE_PASSWORD) {
       return res.status(500).json({ 
-        error: 'Missing credentials',
-        details: 'SORARE_EMAIL and SORARE_PASSWORD required in environment variables'
+        error: 'Missing credentials' 
       });
     }
 
-    // Import modules
     const { default: fetch } = await import('node-fetch');
     const { default: bcrypt } = await import('bcryptjs');
 
-    // Get 2FA code from query
     const twoFACode = req.query.code;
 
-    // Login mutation query
     const loginMutation = `
       mutation SignInMutation($input: signInInput!) {
         signIn(input: $input) {
@@ -53,7 +43,6 @@ export default async function handler(req, res) {
       }
     `;
 
-    // Helper function to perform login
     async function performLogin(loginInput) {
       const headers = {
         'Content-Type': 'application/json'
@@ -72,52 +61,26 @@ export default async function handler(req, res) {
         })
       });
 
-      if (!response.ok) {
-        throw new Error(`Login request failed: ${response.status} ${response.statusText}`);
-      }
-
       return await response.json();
     }
 
-    // Step 1: Get salt for password hashing
-    console.log('Getting salt for user:', SORARE_EMAIL);
+    // Get salt
     const saltResponse = await fetch(`https://api.sorare.com/api/v1/users/${encodeURIComponent(SORARE_EMAIL)}`);
-    
-    if (!saltResponse.ok) {
-      throw new Error(`Salt request failed: ${saltResponse.status} ${saltResponse.statusText}`);
-    }
-    
     const saltData = await saltResponse.json();
-    
-    if (!saltData.salt) {
-      throw new Error('No salt returned from API');
-    }
-
-    // Step 2: Hash password with salt
-    console.log('Hashing password...');
     const hashedPassword = bcrypt.hashSync(SORARE_PASSWORD, saltData.salt);
 
-    let loginData;
-
     if (!twoFACode) {
-      // Step 3a: First login attempt (no 2FA code)
-      console.log('Performing initial login...');
-      
-      loginData = await performLogin({
+      // Initial login
+      const loginData = await performLogin({
         email: SORARE_EMAIL,
         password: hashedPassword
       });
 
-      console.log('Initial login response:', JSON.stringify(loginData, null, 2));
-
-      // Check for direct JWT (no 2FA required)
       if (loginData.data?.signIn?.jwtToken?.token) {
-        console.log('✅ Login successful without 2FA!');
         const jwtToken = loginData.data.signIn.jwtToken.token;
         return await fetchNBACards(jwtToken);
       }
 
-      // Check for otpSessionChallenge (2FA required)
       const otpSessionChallenge = loginData.data?.signIn?.otpSessionChallenge;
       
       if (otpSessionChallenge) {
@@ -126,27 +89,20 @@ export default async function handler(req, res) {
           requiresTwoFA: true,
           otpSessionChallenge: otpSessionChallenge,
           message: 'Codice 2FA richiesto',
-          instructions: [
-            '1. Controlla la tua email per il codice di verifica',
-            '2. Il codice è solitamente di 6 cifre',
-            '3. Usa: /api/cards?code=IL_TUO_CODICE'
-          ],
-          nextStep: `${req.headers.host || 'your-app.vercel.app'}/api/cards?code=INSERISCI_CODICE`
+          nextStep: `${req.headers.host}/api/cards?code=INSERISCI_CODICE`
         });
       }
 
-      // Login failed
       return res.status(400).json({
         error: 'Login failed',
-        details: loginData.data?.signIn?.errors || [],
-        data: loginData
+        details: loginData.data?.signIn?.errors || []
       });
 
     } else {
-      // Step 3b: 2FA login attempt
-      console.log('Performing 2FA login with code:', twoFACode);
+      // 2FA login
+      console.log('Performing 2FA with code:', twoFACode);
       
-      // IMPORTANTE: Rigenera sempre una fresh session per 2FA
+      // Get fresh session
       const freshLoginData = await performLogin({
         email: SORARE_EMAIL,
         password: hashedPassword
@@ -156,73 +112,48 @@ export default async function handler(req, res) {
       
       if (!otpSessionChallenge) {
         return res.status(400).json({
-          error: 'Cannot get fresh OTP session challenge',
-          details: freshLoginData.data?.signIn?.errors || []
+          error: 'Cannot get fresh OTP session challenge'
         });
       }
 
-      console.log('Using fresh otpSessionChallenge:', otpSessionChallenge);
-
-      // Try 2FA with multiple field names (different versions of Sorare API)
-      const twoFAInput = {
+      // ✅ USA SOLO otpAttempt (l'unico campo valido)
+      const twoFALoginData = await performLogin({
         otpSessionChallenge: otpSessionChallenge,
-        // Prova tutti i possibili nomi di campo
-        otpAttempt: twoFACode,
-        otp: twoFACode,
-        otpCode: twoFACode,
-        twoFactorCode: twoFACode,
-        verificationCode: twoFACode,
-        authenticationCode: twoFACode,
-        code: twoFACode
-      };
+        otpAttempt: twoFACode  // SOLO questo campo!
+      });
 
-      console.log('2FA input:', twoFAInput);
+      console.log('2FA response:', JSON.stringify(twoFALoginData, null, 2));
 
-      loginData = await performLogin(twoFAInput);
+      if (twoFALoginData.errors) {
+        return res.status(400).json({
+          error: 'GraphQL errors in 2FA',
+          details: twoFALoginData.errors
+        });
+      }
 
-      console.log('2FA login response:', JSON.stringify(loginData, null, 2));
-
-      // Check for errors
-      if (loginData.data?.signIn?.errors?.length > 0) {
-        const errors = loginData.data.signIn.errors;
-        
+      if (twoFALoginData.data?.signIn?.errors?.length > 0) {
         return res.status(400).json({
           error: 'Codice 2FA non valido',
-          details: errors,
-          hints: [
-            'Verifica che il codice sia corretto (6 cifre)',
-            'Il codice potrebbe essere scaduto',
-            'Richiedi un nuovo codice e riprova immediatamente',
-            'Assicurati di non aver aggiunto spazi o caratteri extra'
-          ],
-          debugInfo: {
-            receivedCode: twoFACode,
-            codeLength: twoFACode.length,
-            otpSessionChallenge: otpSessionChallenge
-          }
+          details: twoFALoginData.data.signIn.errors,
+          hint: 'Codice scaduto o errato'
         });
       }
 
-      // Check for JWT token
-      const jwtToken = loginData.data?.signIn?.jwtToken?.token;
+      const jwtToken = twoFALoginData.data?.signIn?.jwtToken?.token;
       
       if (!jwtToken) {
         return res.status(400).json({
           error: 'Nessun JWT token ricevuto dopo 2FA',
-          data: loginData,
-          hint: 'Login completato ma nessun token JWT'
+          data: twoFALoginData
         });
       }
 
-      console.log('✅ 2FA successful! JWT token received');
+      console.log('✅ 2FA SUCCESS! JWT received');
       return await fetchNBACards(jwtToken);
     }
 
-    // Helper function to fetch NBA cards with JWT
+    // Fetch NBA cards function
     async function fetchNBACards(jwtToken) {
-      console.log('Fetching NBA cards with JWT token...');
-      
-      // Query per carte NBA (basata su documentazione Sorare)
       const nbaCardsQuery = `
         query {
           currentUser {
@@ -257,13 +188,12 @@ export default async function handler(req, res) {
 
       const nbaHeaders = {
         'Authorization': `Bearer ${jwtToken}`,
-        'JWT-AUD': 'sorare-nba-manager',  // Obbligatorio per Sorare
+        'JWT-AUD': 'sorare-nba-manager',
         'Content-Type': 'application/json'
       };
 
       if (SORARE_API_KEY) {
         nbaHeaders['APIKEY'] = SORARE_API_KEY;
-        console.log('Using API key for higher rate limits');
       }
 
       const nbaResponse = await fetch('https://api.sorare.com/graphql', {
@@ -274,54 +204,38 @@ export default async function handler(req, res) {
         })
       });
 
-      if (!nbaResponse.ok) {
-        throw new Error(`NBA cards request failed: ${nbaResponse.status} ${nbaResponse.statusText}`);
-      }
-
       const nbaData = await nbaResponse.json();
-      console.log('NBA cards response:', JSON.stringify(nbaData, null, 2));
 
       if (nbaData.errors) {
         return res.status(400).json({
           error: 'Errore nel recupero carte NBA',
-          details: nbaData.errors,
-          hint: 'JWT token potrebbe essere scaduto o non valido'
+          details: nbaData.errors
         });
       }
 
       const cards = nbaData.data?.currentUser?.nbaCards?.nodes || [];
-      const totalCount = nbaData.data?.currentUser?.nbaCards?.totalCount || 0;
       
-      console.log(`Found ${cards.length} NBA cards`);
-
-      // Aggiungi proiezioni simulate per ogni carta
       const cardsWithProjections = cards.map(card => ({
         ...card,
         projection: Math.round((Math.random() * 30 + 40) * 10) / 10,
         last10avg: Math.round((Math.random() * 25 + 35) * 10) / 10,
-        games_this_week: Math.floor(Math.random() * 4) + 1,
-        efficiency: Math.round((Math.random() * 0.5 + 1) * 100) / 100
+        games_this_week: Math.floor(Math.random() * 4) + 1
       }));
 
       return res.status(200).json({
         success: true,
         data: cardsWithProjections,
         count: cardsWithProjections.length,
-        totalCount: totalCount,
-        message: `🎉🏀 ${cardsWithProjections.length} carte NBA caricate dal tuo account Sorare!`,
-        timestamp: new Date().toISOString(),
-        apiKeyUsed: !!SORARE_API_KEY,
-        jwtReceived: true
+        message: `🎉🏀 ${cardsWithProjections.length} carte NBA dal tuo account Sorare!`,
+        timestamp: new Date().toISOString()
       });
     }
 
   } catch (error) {
-    console.error('Function error:', error);
+    console.error('Error:', error);
     return res.status(500).json({
-      error: 'Errore del sistema',
-      message: error.message,
-      stack: error.stack,
-      timestamp: new Date().toISOString()
+      error: 'System error',
+      message: error.message
     });
   }
 }
