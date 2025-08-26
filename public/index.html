@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SorareNBA Manager - Gestione Strategica Carte</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <!-- API Status Indicator -->
+    <div id="api-status" class="api-status disconnected">
+        🔴 API Disconnessa
+    </div>
+
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="container">
+            <div class="navbar-brand">
+                <h1>🏀 SorareNBA Manager</h1>
+                <div class="live-badge">
+                    <span>LIVE API</span>
+                </div>
+            </div>
+            <div class="navbar-menu">
+                <button class="refresh-btn" onclick="refreshData()" title="Aggiorna Dati">
+                    🔄
+                </button>
+                <button class="btn btn--secondary nav-btn active" data-section="dashboard">Dashboard</button>
+                <button class="btn btn--secondary nav-btn" data-section="my-cards">Le Mie Carte</button>
+                <button class="btn btn--secondary nav-btn" data-section="projections">Proiezioni</button>
+                <button class="btn btn--secondary nav-btn" data-section="strategy">Strategia</button>
+                <button class="btn btn--secondary nav-btn" data-section="competitions">Competizioni</button>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container">
+        <!-- Connection Status -->
+        <div id="connection-indicator" class="connection-indicator offline">
+            <div class="connection-dot offline"></div>
+            <span>Connessione API: Offline</span>
+        </div>
+
+        <!-- Dashboard Section -->
+        <section id="dashboard" class="section active">
+            <div class="section-header">
+                <h2>Dashboard</h2>
+                <p>Panoramica del tuo portafoglio SorareNBA</p>
+            </div>
+            
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-number" id="total-cards">0</div>
+                    <div class="stat-label">Carte Limited</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="portfolio-value">€0</div>
+                    <div class="stat-label">Valore Portafoglio</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="avg-score">0</div>
+                    <div class="stat-label">Media Punti</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="active-competitions">3</div>
+                    <div class="stat-label">Competizioni Attive</div>
+                </div>
+            </div>
+
+            <div class="dashboard-grid">
+                <div class="dashboard-card">
+                    <h3>Performance Ultime 5 Partite</h3>
+                    <canvas id="performance-chart"></canvas>
+                </div>
+                <div class="dashboard-card">
+                    <h3>Distribuzione Posizioni</h3>
+                    <canvas id="positions-chart"></canvas>
+                </div>
+            </div>
+
+            <div class="quick-actions">
+                <button class="btn btn--primary" onclick="generateOptimalLineup()">
+                    🎯 Genera Formazione Ottimale
+                </button>
+                <button class="btn btn--secondary" onclick="analyzeMarket()">
+                    📈 Analizza Mercato
+                </button>
+                <button class="btn btn--secondary" onclick="checkNewCompetitions()">
+                    🏆 Nuove Competizioni
+                </button>
+            </div>
+        </section>
+
+        <!-- My Cards Section -->
+        <section id="my-cards" class="section">
+            <div class="section-header">
+                <h2>Le Mie Carte Limited</h2>
+                <p>Gestisci il tuo portafoglio di carte SorareNBA</p>
+            </div>
+
+            <div class="filters">
+                <select id="position-filter" class="filter-select">
+                    <option value="">Tutte le Posizioni</option>
+                    <option value="Guard">Guard</option>
+                    <option value="Forward">Forward</option>
+                    <option value="Center">Center</option>
+                </select>
+                <select id="team-filter" class="filter-select">
+                    <option value="">Tutte le Squadre</option>
+                </select>
+                <input type="text" id="search-player" class="search-input" placeholder="Cerca giocatore...">
+            </div>
+
+            <div id="cards-grid" class="cards-grid">
+                <!-- Cards will be loaded here -->
+            </div>
+        </section>
+
+        <!-- Projections Section -->
+        <section id="projections" class="section">
+            <div class="section-header">
+                <h2>Proiezioni Settimanali</h2>
+                <p>Analisi performance previste per i tuoi giocatori</p>
+            </div>
+
+            <div class="projections-summary">
+                <div class="projection-card">
+                    <h4>Top Performer Atteso</h4>
+                    <div id="top-projection" class="top-projection">Caricamento...</div>
+                </div>
+                <div class="projection-card">
+                    <h4>Miglior Value Pick</h4>
+                    <div id="best-value" class="best-value">Caricamento...</div>
+                </div>
+            </div>
+
+            <div id="projections-table" class="projections-table">
+                <!-- Projections table will be loaded here -->
+            </div>
+        </section>
+
+        <!-- Strategy Section -->
+        <section id="strategy" class="section">
+            <div class="section-header">
+                <h2>Strategia Formazioni</h2>
+                <p>Ottimizza le tue formazioni per massimizzare i premi</p>
+            </div>
+
+            <div class="strategy-controls">
+                <select id="competition-select" class="filter-select">
+                    <option value="limited_contender">Limited Contender (Cap: 205)</option>
+                    <option value="limited_champion">Limited Champion (Cap: 205)</option>
+                    <option value="rare_champion">Rare Champion (Cap: 220)</option>
+                </select>
+                <button class="btn btn--primary" onclick="calculateOptimalStrategy()">
+                    🧮 Calcola Strategia
+                </button>
+            </div>
+
+            <div id="strategy-results" class="strategy-results">
+                <!-- Strategy results will be displayed here -->
+            </div>
+
+            <div id="lineup-optimizer" class="lineup-optimizer">
+                <h3>Formazione Ottimale</h3>
+                <div id="optimal-lineup" class="optimal-lineup">
+                    <!-- Optimal lineup will be displayed here -->
+                </div>
+            </div>
+        </section>
+
+        <!-- Competitions Section -->
+        <section id="competitions" class="section">
+            <div class="section-header">
+                <h2>Competizioni Disponibili</h2>
+                <p>Scegli le competizioni più adatte al tuo portafoglio</p>
+            </div>
+
+            <div id="competitions-grid" class="competitions-grid">
+                <!-- Competitions will be loaded here -->
+            </div>
+        </section>
+    </main>
+
+    <script src="app.js"></script>
+</body>
+</html>
