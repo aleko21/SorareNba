@@ -1,2 +1,0 @@
-# SorareNba
-Sorare NBA app
