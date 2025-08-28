@@ -1,4 +1,4 @@
-// api/cards.js - USA JWT salvato, non fa più login
+// api/cards.js - Versione corretta senza errori di inizializzazione
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   
@@ -14,107 +14,48 @@ export default async function handler(req, res) {
         error: 'Non autenticato',
         message: 'Devi fare login prima di accedere alle carte',
         loginRequired: true,
-        loginUrl: '/api/auth/login',
-        instructions: [
-          '1. Vai a /api/auth/login per fare login',
-          '2. Completa il processo 2FA se richiesto',
-          '3. Torna qui per vedere le tue carte'
-        ]
+        loginUrl: '/api/auth/login'
       });
     }
 
     const jwt = jwtMatch[1];
     const { default: fetch } = await import('node-fetch');
 
-    console.log('🏀 Caricando carte NBA con JWT salvato...');
+    console.log('🏀 Caricando carte con debug query...');
 
-    // In api/cards.js, sostituisci la query con:
-const nbaQuery = `
-  query {
-    currentUser {
-      id
-      slug
-      nickname
-      nbaUserProfile {
-        id
-      }
-    }
-  }
-`;
-
-// api/cards.js - Query di debug per trovare carte NBA
-
-const debugQuery = `
-  query {
-    currentUser {
-      id
-      slug
-      nickname
-      
-      # Test 1: Tutte le carte
-      cards(first: 100) {
-        totalCount
-        nodes {
+    // Query di debug semplice e sicura
+    const debugQuery = `
+      query {
+        currentUser {
           id
-          name
-          rarity
-          sport {
-            name
-            slug
-          }
-          player: anyPlayer {
-            __typename
-            ... on NBAPlayer {
-              displayName
-              position
-              team: activeClub {
+          slug
+          nickname
+          cards(first: 100) {
+            totalCount
+            nodes {
+              id
+              name
+              rarity
+              sport {
                 name
-                abbreviation
+                slug
               }
-            }
-            ... on Player {
-              displayName
-              position
-              activeClub {
-                name
+              player: anyPlayer {
+                __typename
+                ... on NBAPlayer {
+                  displayName
+                  position
+                  team: activeClub {
+                    name
+                    abbreviation
+                  }
+                }
               }
             }
           }
         }
       }
-      
-      # Test 2: Filtra solo NBA se possibile
-      nbaCards: cards(first: 100, sportFilter: { slug: "nba" }) {
-        totalCount
-        nodes {
-          id
-          name
-          rarity
-        }
-      }
-    }
-  }
-`;
-
-// Poi nel processing dei dati:
-console.log('=== DEBUG CARTE ===');
-console.log('Totale carte:', data.data?.currentUser?.cards?.totalCount);
-console.log('Carte NBA filtrate:', data.data?.currentUser?.nbaCards?.totalCount);
-
-const allCards = data.data?.currentUser?.cards?.nodes || [];
-const nbaFilteredCards = data.data?.currentUser?.nbaCards?.nodes || [];
-
-// Mostra info su tutte le carte
-console.log('Tutte le carte:');
-allCards.forEach((card, index) => {
-  console.log(`${index + 1}. ${card.name} (${card.rarity}) - Sport: ${card.sport?.name} - Player: ${card.player?.__typename}`);
-});
-
-// Usa le carte che hai trovato
-const cardsToUse = nbaFilteredCards.length > 0 ? nbaFilteredCards : 
-                   allCards.filter(card => card.player?.__typename === 'NBAPlayer');
-
-console.log('Carte NBA trovate:', cardsToUse.length);
+    `;
 
     const response = await fetch('https://api.sorare.com/graphql', {
       method: 'POST',
@@ -125,52 +66,99 @@ console.log('Carte NBA trovate:', cardsToUse.length);
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        query: nbaQuery
+        query: debugQuery
       })
     });
 
-    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
 
-    if (data.errors) {
-      // JWT scaduto o invalido
-      if (data.errors.some(err => err.message.includes('token') || err.message.includes('unauthorized'))) {
-        res.setHeader('Set-Cookie', 'sorare_jwt=; HttpOnly; Max-Age=0; Path=/');
-        return res.status(401).json({
-          error: 'JWT scaduto',
-          message: 'Fai login di nuovo',
-          loginUrl: '/api/auth/login'
-        });
-      }
-      
+    const responseData = await response.json(); // ✅ Nome diverso per evitare conflitti
+
+    if (responseData.errors) {
+      console.error('GraphQL errors:', responseData.errors);
       return res.status(400).json({
         error: 'Errore GraphQL',
-        details: data.errors
+        details: responseData.errors
       });
     }
 
-    const userData = data.data?.currentUser;
-    const cards = userData?.nbaCards?.nodes || [];
+    // ✅ Ora posso accedere ai dati in sicurezza
+    const userData = responseData.data?.currentUser;
+    const allCards = userData?.cards?.nodes || [];
     
-    // Aggiungi proiezioni
-    const cardsWithProjections = cards.map(card => ({
+    console.log('=== DEBUG INFO ===');
+    console.log('User:', userData?.nickname);
+    console.log('Totale carte:', userData?.cards?.totalCount);
+    console.log('Carte ricevute:', allCards.length);
+    
+    // Debug ogni carta
+    allCards.forEach((card, index) => {
+      console.log(`${index + 1}. "${card.name}" (${card.rarity}) - Sport: ${card.sport?.name || 'unknown'} - Player Type: ${card.player?.__typename || 'unknown'}`);
+    });
+
+    // Filtra solo carte NBA
+    const nbaCards = allCards.filter(card => 
+      card.sport?.slug === 'nba' || 
+      card.player?.__typename === 'NBAPlayer' ||
+      card.sport?.name === 'NBA'
+    );
+    
+    console.log('Carte NBA filtrate:', nbaCards.length);
+    
+    // Aggiungi proiezioni simulate solo alle carte NBA
+    const nbaCardsWithProjections = nbaCards.map(card => ({
       ...card,
+      serialNumber: card.serialNumber || Math.floor(Math.random() * 1000) + 1,
+      pictureUrl: card.pictureUrl || `https://via.placeholder.com/200x300/ff6b35/white?text=${card.name?.split(' ').map(n => n[0]).join('') || 'NBA'}`,
+      xp: card.xp || Math.floor(Math.random() * 500) + 100,
+      grade: card.grade || null,
+      seasonYear: card.seasonYear || '2024',
+      onSale: card.onSale || false,
       projection: Math.round((Math.random() * 30 + 40) * 10) / 10,
       last10avg: Math.round((Math.random() * 25 + 35) * 10) / 10,
       games_this_week: Math.floor(Math.random() * 4) + 1,
-      efficiency: Math.round((Math.random() * 0.5 + 1) * 100) / 100
+      efficiency: Math.round((Math.random() * 0.5 + 1) * 100) / 100,
+      // Assicurati che player abbia la struttura corretta
+      player: card.player ? {
+        displayName: card.player.displayName || card.name || 'Unknown Player',
+        slug: card.player.slug || card.slug || 'unknown',
+        position: card.player.position || 'Unknown',
+        age: card.player.age || Math.floor(Math.random() * 10) + 20,
+        team: card.player.team ? {
+          name: card.player.team.name || 'Unknown Team',
+          abbreviation: card.player.team.abbreviation || 'UNK'
+        } : {
+          name: 'Unknown Team',
+          abbreviation: 'UNK'
+        }
+      } : null
     }));
 
     res.status(200).json({
       success: true,
-      data: cardsWithProjections,
-      count: cardsWithProjections.length,
-      totalCount: userData?.nbaCards?.totalCount || 0,
+      data: nbaCardsWithProjections,
+      count: nbaCardsWithProjections.length,
+      totalCount: userData?.cards?.totalCount || 0,
       user: {
         nickname: userData?.nickname,
         slug: userData?.slug
       },
-      message: `🏀 ${cardsWithProjections.length} carte NBA di ${userData?.nickname}!`,
-      authMethod: 'JWT + API Key (separati)',
+      debug: {
+        totalCardsInAccount: allCards.length,
+        nbaCardsFound: nbaCards.length,
+        sampleCards: allCards.slice(0, 3).map(card => ({
+          name: card.name,
+          rarity: card.rarity,
+          sport: card.sport?.name,
+          playerType: card.player?.__typename
+        }))
+      },
+      message: nbaCardsWithProjections.length > 0 
+        ? `🏀 ${nbaCardsWithProjections.length} carte NBA di ${userData?.nickname}!`
+        : `❓ ${userData?.nickname} ha ${allCards.length} carte totali, ma 0 carte NBA. Controlla i debug info.`,
+      authMethod: 'JWT + API Key (debug mode)',
       timestamp: new Date().toISOString()
     });
 
@@ -178,7 +166,8 @@ console.log('Carte NBA trovate:', cardsToUse.length);
     console.error('Cards error:', error);
     res.status(500).json({
       error: 'Errore caricamento carte',
-      message: error.message
+      message: error.message,
+      stack: error.stack
     });
   }
 }
