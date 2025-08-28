@@ -11,60 +11,66 @@ let currentData = {
 // Configurazioni
 const CONFIG = {
   maxLineupSize: 5,
-  rarityColors: { limited: '#ff6b35', rare: '#4fc3f7', super_rare: '#ab47bc', unique: '#ffd700', common: '#78909c' },
-  positionIcons: { PG: '🏃', SG: '⚡', SF: '🏀', PF: '💪', C: '🗼' }
+  rarityColors: {
+    limited: '#ff6b35',
+    rare: '#4fc3f7',
+    super_rare: '#ab47bc',
+    unique: '#ffd700',
+    common: '#78909c'
+  },
+  positionIcons: {
+    PG: '🏃',
+    SG: '⚡',
+    SF: '🏀',
+    PF: '💪',
+    C: '🗼'
+  }
 };
 
-// Challenge 2FA (popolata da backend)
+// Challenge 2FA (popolata da backend in redirect)
 let otpChallenge = null;
 
 // Inizializzazione al caricamento della pagina
 document.addEventListener('DOMContentLoaded', () => {
-  // Listener per il pulsante di login
-  const loginBtn = document.getElementById('login-btn');
-  if (loginBtn) loginBtn.addEventListener('click', startLogin);
+  // Pulsante Login
+  document.getElementById('login-btn')?.addEventListener('click', () => {
+    window.location.href = '/api/auth/login';
+  });
 
-  // Listener per submit del codice 2FA nella modale
-  const twofaSubmit = document.getElementById('twofa-submit');
-  if (twofaSubmit) twofaSubmit.addEventListener('click', submitTwoFACode);
+  // Submit codice 2FA (se modale visibile)
+  document.getElementById('twofa-submit')?.addEventListener('click', () => {
+    const code = document.getElementById('twofa-input').value.trim();
+    if (code.length !== 6) {
+      document.getElementById('twofa-error').textContent = 'Inserisci 6 cifre';
+      return;
+    }
+    const params = new URLSearchParams(window.location.search);
+    const challenge = params.get('challenge');
+    window.location.href = `/api/auth/login?code=${code}&challenge=${encodeURIComponent(challenge)}`;
+  });
 
-  // Carica le carte dall'API o demo
+  // Carica carte dall’API o usa demo
   loadLiveDataWithFallback();
 
-  // Imposta filtri e lineup
+  // Imposta filtri, lineup e shortcut
   setupFilters();
   setupLineupControls();
   setupKeyboardShortcuts();
 });
 
-// Funzione di redirect per login (gestito dal backend)
-function startLogin() {
-  window.location.href = '/api/auth/login.js';
-}
-
-// Funzione per inviare il codice 2FA via redirect
-function submitTwoFACode() {
-  const code = document.getElementById('twofa-input').value.trim();
-  if (code.length !== 6) {
-    document.getElementById('twofa-error').textContent = 'Inserisci un codice di 6 cifre';
-    return;
-  }
-  const challenge = otpChallenge || new URLSearchParams(window.location.search).get('challenge');
-  window.location.href = `/api/auth/login.js?code=${code}&challenge=${encodeURIComponent(challenge)}`;
-}
-
-// Carica dati live con fallback sui demo
+// Carica dati live con fallback demo
 async function loadLiveDataWithFallback() {
   try {
     showLoading('Caricamento carte Sorare...');
-    const response = await fetch('/api/cards.js');
-    const data = await response.json();
+    const res = await fetch('/api/cards');
+    const data = await res.json();
 
-    if (response.status === 401 && data.loginUrl) {
-      // Mostra pulsante login se non autenticato
-      return showLoginContainer();
+    if (res.status === 401 && data.loginUrl) {
+      // Mostra solo il bottone login
+      document.getElementById('login-container').style.display = 'block';
+      return;
     }
-    if (!response.ok || !data.success) {
+    if (!res.ok || !data.success) {
       throw new Error(data.message || 'Errore API');
     }
 
@@ -72,24 +78,18 @@ async function loadLiveDataWithFallback() {
     applyFilters();
     renderCards();
     updateConnectionStatus(true);
-    showSuccessNotification(`✅ Caricate ${data.count} carte di ${data.user.nickname}`);
-  } catch (error) {
-    console.error('Errore caricamento live:', error);
+    showSuccessNotification(`✅ ${data.count} carte caricate di ${data.user.nickname}`);
+  } catch (err) {
+    console.error('Errore live load:', err);
     loadDemoData();
     updateConnectionStatus(false);
-    showErrorNotification('Errore API, mostrati dati demo');
+    showErrorNotification('API non disponibile, mostrando demo');
   } finally {
     hideLoading();
   }
 }
 
-// Mostra contenitore login
-function showLoginContainer() {
-  const container = document.getElementById('login-container');
-  if (container) container.style.display = 'block';
-}
-
-// Carica dati di esempio
+// Carica dati demo
 function loadDemoData() {
   currentData.cards = DEMO_DATA.cards;
   applyFilters();
@@ -98,14 +98,12 @@ function loadDemoData() {
 
 // Imposta i filtri
 function setupFilters() {
-  const searchInput = document.getElementById('search-input');
-  if (searchInput) searchInput.addEventListener('input', e => {
+  document.getElementById('search-input')?.addEventListener('input', e => {
     currentData.filters.search = e.target.value;
     applyFilters(); renderCards();
   });
   ['rarity', 'position', 'team'].forEach(type => {
-    const select = document.getElementById(`${type}-filter`);
-    if (select) select.addEventListener('change', e => {
+    document.getElementById(`${type}-filter`)?.addEventListener('change', e => {
       currentData.filters[type] = e.target.value;
       applyFilters(); renderCards();
     });
@@ -131,21 +129,21 @@ function setupKeyboardShortcuts() {
 
 // Applica i filtri alle carte
 function applyFilters() {
-  let filtered = [...currentData.cards];
+  let result = [...currentData.cards];
   const { rarity, position, team, search } = currentData.filters;
-  if (rarity !== 'all') filtered = filtered.filter(c => c.rarity === rarity);
-  if (position !== 'all') filtered = filtered.filter(c => c.player.position === position);
-  if (team !== 'all') filtered = filtered.filter(c => c.player.team.abbreviation === team);
+  if (rarity !== 'all') result = result.filter(c => c.rarity === rarity);
+  if (position !== 'all') result = result.filter(c => c.player.position === position);
+  if (team !== 'all') result = result.filter(c => c.player.team.abbreviation === team);
   if (search) {
     const term = search.toLowerCase();
-    filtered = filtered.filter(c => c.player.displayName.toLowerCase().includes(term));
+    result = result.filter(c => c.player.displayName.toLowerCase().includes(term));
   }
-  currentData.filteredCards = filtered;
+  currentData.filteredCards = result;
 }
 
-// Rendering carte e lineup (mantieni la tua implementazione esistente)
+// Render delle carte e lineup (tua implementazione)
 function renderCards() { /* ... */ }
-function createCardHTML(card) { /* ... */ }
+function createCardHTML(c) { /* ... */ }
 function updateStats() { /* ... */ }
 function updateConnectionStatus(isConnected) { /* ... */ }
 
@@ -156,13 +154,8 @@ function clearLineup() { /* ... */ }
 function optimizeLineup() { /* ... */ }
 function updateLineupDisplay() { /* ... */ }
 
-// Notifiche e caricamento
-function showLoading(msg = 'Caricamento...') { /* ... */ }
+// Notifiche e loader
+function showLoading(msg='Caricamento...') { /* ... */ }
 function hideLoading() { /* ... */ }
 function showSuccessNotification(msg) { /* ... */ }
 function showErrorNotification(msg) { /* ... */ }
-
-// Esporta per test, se necessario
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { applyFilters, loadDemoData, loadLiveDataWithFallback };
-}
