@@ -6,26 +6,41 @@ export default async function handler(req, res) {
     const SORARE_API_KEY = process.env.SORARE_API_KEY;
     const cookies = req.headers.cookie || '';
     const jwtMatch = cookies.match(/sorare_jwt=([^;]+)/);
-
     if (!jwtMatch) {
-      return res.status(401).json({
-        error: 'Non autenticato',
-        loginUrl: '/api/auth/login'
-      });
+      return res.status(401).json({ error: 'Non autenticato', loginUrl: '/api/auth/login' });
     }
-
     const jwt = jwtMatch[1];
     const { default: fetch } = await import('node-fetch');
 
-    // QUERY: senza filtri rarities
-    const correctNBAQuery = `
+    // 1) Query preliminare per totalCount
+    const countQuery = `
       query {
         currentUser {
-          id
-          slug
-          nickname
-          cards(first: 100, sport: NBA) {
+          cards(first: 0, sport: NBA) {
             totalCount
+          }
+        }
+      }
+    `;
+    const countResp = await fetch('https://api.sorare.com/graphql', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${jwt}`,
+        'APIKEY': SORARE_API_KEY,
+        'JWT-AUD': 'sorare-nba-manager',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ query: countQuery })
+    });
+    const countData = await countResp.json();
+    const total = countData.data.currentUser.cards.totalCount;
+
+    // 2) Query “bulk” con first = total
+    const bulkQuery = `
+      query CardsAll($first: Int!) {
+        currentUser {
+          nickname
+          cards(first: $first, sport: NBA) {
             nodes {
               name
               slug
@@ -36,16 +51,12 @@ export default async function handler(req, res) {
               grade
               seasonYear
               anyPlayer {
-                __typename
                 displayName
                 slug
                 anyPositions
                 age
                 ... on NBAPlayer {
-                  activeClub {
-                    name
-                    slug
-                  }
+                  activeClub { name slug }
                 }
               }
               walletStatus
@@ -54,8 +65,7 @@ export default async function handler(req, res) {
         }
       }
     `;
-
-    const response = await fetch('https://api.sorare.com/graphql', {
+    const bulkResp = await fetch('https://api.sorare.com/graphql', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${jwt}`,
@@ -63,28 +73,15 @@ export default async function handler(req, res) {
         'JWT-AUD': 'sorare-nba-manager',
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ query: correctNBAQuery })
+      body: JSON.stringify({ query: bulkQuery, variables: { first: total } })
     });
+    const bulkData = await bulkResp.json();
+    if (bulkData.errors) throw new Error(bulkData.errors[0].message);
 
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
-
-    const { data, errors } = await response.json();
-
-    if (errors) {
-      return res.status(400).json({ error: 'Errore GraphQL', details: errors });
-    }
-
-    const userData = data.currentUser;
-    const allCards = userData.cards.nodes || [];
-
-    // FILTRO: solo carte Limited
-const limitedCards = allCards.filter(card =>
-  card.rarityTyped?.toUpperCase() === 'LIMITED'
-);
-    // AGGIUNGI PROIEZIONI alle Limited
-    const cardsWithProjections = limitedCards.map(card => ({
+    // Filtra e mappa le Limited
+    const allCards = bulkData.data.currentUser.cards.nodes;
+    const limited = allCards.filter(c => c.rarityTyped?.toUpperCase() === 'LIMITED');
+    const cardsWithProjections = limited.map(card => ({
       id: card.slug,
       slug: card.slug,
       name: card.name,
@@ -105,31 +102,25 @@ const limitedCards = allCards.filter(card =>
           abbreviation: card.anyPlayer.activeClub?.slug?.slice(0,3).toUpperCase()
         }
       },
-      projection: Math.round((Math.random() * 30 + 40) * 10) / 10,
-      last10avg: Math.round((Math.random() * 25 + 35) * 10) / 10,
-      games_this_week: Math.floor(Math.random() * 4) + 1,
-      efficiency: Math.round((Math.random() * 0.5 + 1) * 100) / 100
+      projection: Math.round((Math.random()*30+40)*10)/10,
+      last10avg: Math.round((Math.random()*25+35)*10)/10,
+      games_this_week: Math.floor(Math.random()*4)+1,
+      efficiency: Math.round((Math.random()*0.5+1)*100)/100
     }));
 
     res.status(200).json({
       success: true,
       data: cardsWithProjections,
       count: cardsWithProjections.length,
-      totalCount: userData.cards.totalCount,
-      user: {
-        nickname: userData.nickname,
-        slug: userData.slug
-      },
-      message: `🎉🏀 ${cardsWithProjections.length} carte NBA Limited di ${userData.nickname}!`,
-      authMethod: 'JWT + API Key',
+      totalCount: total,
+      user: { nickname: bulkData.data.currentUser.nickname },
+      message: `🎉🏀 ${cardsWithProjections.length} carte NBA Limited di ${bulkData.data.currentUser.nickname}!`,
+      authMethod: 'JWT + API Key (bulk fetch)',
       timestamp: new Date().toISOString()
     });
 
   } catch (error) {
     console.error('Cards error:', error);
-    res.status(500).json({
-      error: 'Errore caricamento carte',
-      message: error.message
-    });
+    res.status(500).json({ error: 'Errore caricamento carte', message: error.message });
   }
 }
