@@ -77,24 +77,12 @@ export default async function handler(req, res) {
     }
 
     const userData = data.currentUser;
-       const allCards = userData.cards.nodes || [];
+    const allCards = userData.cards.nodes || [];
 
-    // FILTRO: solo carte Limited (uppercase)
-    const limitedCards = allCards.filter(card =>
-      card.rarityTyped?.toUpperCase() === 'LIMITED'
-    );
-
-    console.log('Carte NBA Limited trovate:', limitedCards.length);
-
-    const cardsWithProjections = limitedCards.map(card => ({
-      id: card.slug,
-      slug: card.slug,
-      name: card.name,
-      rarity: card.rarityTyped.toLowerCase(),
-      // ...
-    }));
-
-
+    // FILTRO: solo carte Limited
+const limitedCards = allCards.filter(card =>
+  card.rarityTyped?.toUpperCase() === 'LIMITED'
+);
     // AGGIUNGI PROIEZIONI alle Limited
     const cardsWithProjections = limitedCards.map(card => ({
       id: card.slug,
