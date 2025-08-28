@@ -17,14 +17,14 @@ export default async function handler(req, res) {
     const jwt = jwtMatch[1];
     const { default: fetch } = await import('node-fetch');
 
-    // QUERY: senza filtri rarities
+    // Query corretta: sport BASKETBALL per tutte le carte NBA
     const correctNBAQuery = `
       query {
         currentUser {
           id
           slug
           nickname
-          cards(first: 100, sport: NBA) {
+          cards(first: 100, sport: BASKETBALL) {
             totalCount
             nodes {
               name
@@ -79,11 +79,12 @@ export default async function handler(req, res) {
     const userData = data.currentUser;
     const allCards = userData.cards.nodes || [];
 
-    // FILTRO: solo carte Limited
-const limitedCards = allCards.filter(card =>
-  card.rarityTyped?.toUpperCase() === 'LIMITED'
-);
-    // AGGIUNGI PROIEZIONI alle Limited
+    // Filtra solo carte Limited
+    const limitedCards = allCards.filter(card =>
+      card.rarityTyped?.toUpperCase() === 'LIMITED'
+    );
+
+    // Aggiungi proiezioni simulate
     const cardsWithProjections = limitedCards.map(card => ({
       id: card.slug,
       slug: card.slug,
@@ -101,8 +102,8 @@ const limitedCards = allCards.filter(card =>
         position: card.anyPlayer.anyPositions?.[0] || null,
         age: card.anyPlayer.age,
         team: {
-          name: card.anyPlayer.activeClub?.name,
-          abbreviation: card.anyPlayer.activeClub?.slug?.slice(0,3).toUpperCase()
+          name: card.anyPlayer.activeClub?.name || '',
+          abbreviation: card.anyPlayer.activeClub?.slug?.slice(0,3).toUpperCase() || ''
         }
       },
       projection: Math.round((Math.random() * 30 + 40) * 10) / 10,
