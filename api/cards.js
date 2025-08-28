@@ -1,3 +1,57 @@
+// api/cards.js
+export default async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+
+  try {
+    const SORARE_API_KEY = process.env.SORARE_API_KEY;
+    const cookies = req.headers.cookie || '';
+    const jwtMatch = cookies.match(/sorare_jwt=([^;]+)/);
+    if (!jwtMatch) {
+      return res.status(401).json({ error: 'Non autenticato', loginUrl: '/api/auth/login' });
+    }
+    const jwt = jwtMatch[1];
+    const fetch = (await import('node-fetch')).default;
+
+    // Query paginata
+    const QUERY = `
+      query CardsPage($first: Int!, $after: String) {
+        currentUser {
+          cards(first: $first, sport: NBA, after: $after) {
+            pageInfo {
+              hasNextPage
+              endCursor
+            }
+            nodes {
+              name
+              slug
+              rarityTyped
+              serialNumber
+              pictureUrl
+              xp
+              grade
+              seasonYear
+              anyPlayer {
+                displayName
+                slug
+                anyPositions
+                age
+                ... on NBAPlayer { activeClub { name slug } }
+              }
+              walletStatus
+            }
+            totalCount
+          }
+        }
+      }
+    `;
+
+    let allNodes = [];
+    let cursor = null;
+    let hasNextPage = true;
+
+    // Ciclo finché hasNextPage = true
+    while (hasNextPage) {
+      const resp = await fetch('https://api.sorare.com/graphql', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${jwt}`,
