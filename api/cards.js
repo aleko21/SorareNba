@@ -20,44 +20,45 @@ export default async function handler(req, res) {
     console.log('🏀 Caricando carte NBA con query documentazione ufficiale...');
 
     // ✅ QUERY CORRETTA basata sullo schema ufficiale Sorare
-    const correctNBAQuery = `
-      query {
-        currentUser {
-          id
+   const correctNBAQuery = `
+  query {
+    currentUser {
+      id
+      slug
+      nickname
+      cards(first: 100, sport: NBA, filters: { rarities: [LIMITED] }) {
+        totalCount
+        nodes {
+          name
           slug
-          nickname
-          cards(first: 100, sport: NBA, rarities: [LIMITED]) {
-            totalCount
-            nodes {
-              name
-              slug
-              rarityTyped
-              serialNumber
-              pictureUrl
-              xp
-              grade
-              seasonYear
-              sport
-              anyPlayer {
-                __typename
-                displayName
+          rarityTyped
+          serialNumber
+          pictureUrl
+          xp
+          grade
+          seasonYear
+          sport
+          anyPlayer {
+            __typename
+            displayName
+            slug
+            anyPositions
+            age
+            ... on NBAPlayer {
+              displayName
+              activeClub {
+                name
                 slug
-                anyPositions
-                age
-                ... on NBAPlayer {
-                  displayName
-                  activeClub {
-                    name
-                    slug
-                  }
-                }
               }
-              walletStatus
             }
           }
+          walletStatus
         }
       }
-    `;
+    }
+  }
+`;
+
 
     const response = await fetch('https://api.sorare.com/graphql', {
       method: 'POST',
