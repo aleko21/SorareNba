@@ -17,14 +17,14 @@ export default async function handler(req, res) {
     const jwt = jwtMatch[1];
     const { default: fetch } = await import('node-fetch');
 
-    // Query corretta: sport BASKETBALL per tutte le carte NBA
-    const correctNBAQuery = `
+    // Query senza filtro sport
+    const queryAllCards = `
       query {
         currentUser {
           id
           slug
           nickname
-          cards(first: 100, sport: BASKETBALL) {
+          cards(first: 200) {
             totalCount
             nodes {
               name
@@ -63,7 +63,7 @@ export default async function handler(req, res) {
         'JWT-AUD': 'sorare-nba-manager',
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ query: correctNBAQuery })
+      body: JSON.stringify({ query: queryAllCards })
     });
 
     if (!response.ok) {
@@ -79,13 +79,14 @@ export default async function handler(req, res) {
     const userData = data.currentUser;
     const allCards = userData.cards.nodes || [];
 
-    // Filtra solo carte Limited
-    const limitedCards = allCards.filter(card =>
+    // FILTRO: solo carte NBA Limited
+    const limitedNBACards = allCards.filter(card =>
+      card.anyPlayer?.__typename === 'NBAPlayer' &&
       card.rarityTyped?.toUpperCase() === 'LIMITED'
     );
 
     // Aggiungi proiezioni simulate
-    const cardsWithProjections = limitedCards.map(card => ({
+    const cardsWithProjections = limitedNBACards.map(card => ({
       id: card.slug,
       slug: card.slug,
       name: card.name,
