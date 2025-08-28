@@ -1,6 +1,6 @@
 // public/app.js
 
-// Mostra stato di caricamento
+// Mostra una scritta di caricamento
 function showLoading(message = 'Caricamento in corso…') {
   const container = document.getElementById('cards-container');
   container.innerHTML = `<p class="loading">${message}</p>`;
@@ -27,11 +27,10 @@ async function loadCards() {
       return;
     }
 
-    // Crea una card per ogni carta
+    // Per ogni carta, crea il suo elemento
     result.data.forEach(card => {
       const cardEl = document.createElement('div');
       cardEl.className = 'card';
-
       cardEl.innerHTML = `
         <img src="${card.pictureUrl}" alt="${card.name}" class="card-img" />
         <div class="card-info">
@@ -52,5 +51,5 @@ async function loadCards() {
   }
 }
 
-// Avvia il caricamento al DOM ready
+// Al caricamento del DOM, chiama loadCards()
 document.addEventListener('DOMContentLoaded', loadCards);
