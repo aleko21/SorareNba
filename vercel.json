@@ -21,3 +21,11 @@
     }
   ]
 }
+{
+  "rewrites": [
+    {
+      "source": "/api/auth/login",
+      "destination": "/api/auth/login.js"
+    }
+  ]
+}
