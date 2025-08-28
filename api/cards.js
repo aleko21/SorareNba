@@ -1,118 +1,168 @@
-// api/cards.js
-export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+// public/app.js
 
-  try {
-    const SORARE_API_KEY = process.env.SORARE_API_KEY;
-    const cookies = req.headers.cookie || '';
-    const jwtMatch = cookies.match(/sorare_jwt=([^;]+)/);
-    if (!jwtMatch) {
-      return res.status(401).json({ error: 'Non autenticato', loginUrl: '/api/auth/login' });
-    }
-    const jwt = jwtMatch[1];
-    const fetch = (await import('node-fetch')).default;
+// Stato globale
+let currentData = {
+  cards: [],
+  filteredCards: [],
+  selectedLineup: [],
+  filters: { rarity: 'all', position: 'all', team: 'all', search: '' }
+};
 
-    // Query paginata
-    const QUERY = `
-      query CardsPage($first: Int!, $after: String) {
-        currentUser {
-          cards(first: $first, sport: NBA, after: $after) {
-            pageInfo {
-              hasNextPage
-              endCursor
-            }
-            nodes {
-              name
-              slug
-              rarityTyped
-              serialNumber
-              pictureUrl
-              xp
-              grade
-              seasonYear
-              anyPlayer {
-                displayName
-                slug
-                anyPositions
-                age
-                ... on NBAPlayer { activeClub { name slug } }
-              }
-              walletStatus
-            }
-            totalCount
-          }
-        }
-      }
-    `;
+// Configurazioni
+const CONFIG = {
+  maxLineupSize: 5,
+  rarityColors: { limited: '#ff6b35', rare: '#4fc3f7', super_rare: '#ab47bc', unique: '#ffd700', common: '#78909c' },
+  positionIcons: { PG: '🏃', SG: '⚡', SF: '🏀', PF: '💪', C: '🗼' }
+};
 
-    let allNodes = [];
-    let cursor = null;
-    let hasNextPage = true;
+// Challenge 2FA (popolata da backend)
+let otpChallenge = null;
 
-    // Ciclo finché hasNextPage = true
-    while (hasNextPage) {
-      const resp = await fetch('https://api.sorare.com/graphql', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${jwt}`,
-          'APIKEY': SORARE_API_KEY,
-          'JWT-AUD': 'sorare-nba-manager',
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ query: QUERY, variables: { first: 50, after: cursor } })
-      });
-      const { data, errors } = await resp.json();
-      if (errors) throw new Error(errors[0].message);
+// Inizializzazione al caricamento della pagina
+document.addEventListener('DOMContentLoaded', () => {
+  // Listener per il pulsante di login
+  const loginBtn = document.getElementById('login-btn');
+  if (loginBtn) loginBtn.addEventListener('click', startLogin);
 
-      const page = data.currentUser.cards;
-      allNodes.push(...page.nodes);
-      hasNextPage = page.pageInfo.hasNextPage;
-      cursor = page.pageInfo.endCursor;
-    }
+  // Listener per submit del codice 2FA nella modale
+  const twofaSubmit = document.getElementById('twofa-submit');
+  if (twofaSubmit) twofaSubmit.addEventListener('click', submitTwoFACode);
 
-    // Filtra solo Limited
-    const limited = allNodes.filter(c => c.rarityTyped?.toUpperCase() === 'LIMITED');
+  // Carica le carte dall'API o demo
+  loadLiveDataWithFallback();
 
-    // Mappa con proiezioni
-    const cards = limited.map(card => ({
-      id: card.slug,
-      slug: card.slug,
-      name: card.name,
-      rarity: card.rarityTyped.toLowerCase(),
-      serialNumber: card.serialNumber,
-      pictureUrl: card.pictureUrl,
-      xp: card.xp,
-      grade: card.grade,
-      seasonYear: card.seasonYear,
-      onSale: card.walletStatus !== 'MINTED',
-      player: {
-        displayName: card.anyPlayer.displayName,
-        slug: card.anyPlayer.slug,
-        position: card.anyPlayer.anyPositions?.[0] || null,
-        age: card.anyPlayer.age,
-        team: {
-          name: card.anyPlayer.activeClub?.name,
-          abbreviation: card.anyPlayer.activeClub?.slug?.slice(0,3).toUpperCase()
-        }
-      },
-      projection: Math.round((Math.random()*30+40)*10)/10,
-      last10avg: Math.round((Math.random()*25+35)*10)/10,
-      games_this_week: Math.floor(Math.random()*4)+1,
-      efficiency: Math.round((Math.random()*0.5+1)*100)/100
-    }));
+  // Imposta filtri e lineup
+  setupFilters();
+  setupLineupControls();
+  setupKeyboardShortcuts();
+});
 
-    return res.status(200).json({
-      success: true,
-      data: cards,
-      count: cards.length,
-      totalCount: allNodes.length,
-      message: `🎉🏀 ${cards.length} carte NBA Limited caricate!`,
-      authMethod: 'JWT + API Key (paginazione)',
-      timestamp: new Date().toISOString()
-    });
+// Funzione di redirect per login (gestito dal backend)
+function startLogin() {
+  window.location.href = '/api/auth/login.js';
+}
 
-  } catch (error) {
-    console.error('Cards error:', error);
-    return res.status(500).json({ error: 'Errore caricamento carte', message: error.message });
+// Funzione per inviare il codice 2FA via redirect
+function submitTwoFACode() {
+  const code = document.getElementById('twofa-input').value.trim();
+  if (code.length !== 6) {
+    document.getElementById('twofa-error').textContent = 'Inserisci un codice di 6 cifre';
+    return;
   }
+  const challenge = otpChallenge || new URLSearchParams(window.location.search).get('challenge');
+  window.location.href = `/api/auth/login.js?code=${code}&challenge=${encodeURIComponent(challenge)}`;
+}
+
+// Carica dati live con fallback sui demo
+async function loadLiveDataWithFallback() {
+  try {
+    showLoading('Caricamento carte Sorare...');
+    const response = await fetch('/api/cards.js');
+    const data = await response.json();
+
+    if (response.status === 401 && data.loginUrl) {
+      // Mostra pulsante login se non autenticato
+      return showLoginContainer();
+    }
+    if (!response.ok || !data.success) {
+      throw new Error(data.message || 'Errore API');
+    }
+
+    currentData.cards = data.data;
+    applyFilters();
+    renderCards();
+    updateConnectionStatus(true);
+    showSuccessNotification(`✅ Caricate ${data.count} carte di ${data.user.nickname}`);
+  } catch (error) {
+    console.error('Errore caricamento live:', error);
+    loadDemoData();
+    updateConnectionStatus(false);
+    showErrorNotification('Errore API, mostrati dati demo');
+  } finally {
+    hideLoading();
+  }
+}
+
+// Mostra contenitore login
+function showLoginContainer() {
+  const container = document.getElementById('login-container');
+  if (container) container.style.display = 'block';
+}
+
+// Carica dati di esempio
+function loadDemoData() {
+  currentData.cards = DEMO_DATA.cards;
+  applyFilters();
+  renderCards();
+}
+
+// Imposta i filtri
+function setupFilters() {
+  const searchInput = document.getElementById('search-input');
+  if (searchInput) searchInput.addEventListener('input', e => {
+    currentData.filters.search = e.target.value;
+    applyFilters(); renderCards();
+  });
+  ['rarity', 'position', 'team'].forEach(type => {
+    const select = document.getElementById(`${type}-filter`);
+    if (select) select.addEventListener('change', e => {
+      currentData.filters[type] = e.target.value;
+      applyFilters(); renderCards();
+    });
+  });
+}
+
+// Controlli lineup
+function setupLineupControls() {
+  document.getElementById('clear-lineup-btn')?.addEventListener('click', clearLineup);
+  document.getElementById('optimize-lineup-btn')?.addEventListener('click', optimizeLineup);
+  document.getElementById('refresh-btn')?.addEventListener('click', loadLiveDataWithFallback);
+}
+
+// Scorciatoie da tastiera
+function setupKeyboardShortcuts() {
+  document.addEventListener('keydown', e => {
+    if (e.ctrlKey && e.key === 'r') { e.preventDefault(); loadLiveDataWithFallback(); }
+    if (e.ctrlKey && e.key === 'l') { e.preventDefault(); clearLineup(); }
+    if (e.ctrlKey && e.key === 'o') { e.preventDefault(); optimizeLineup(); }
+    if (e.key === 'Escape') { resetFilters(); }
+  });
+}
+
+// Applica i filtri alle carte
+function applyFilters() {
+  let filtered = [...currentData.cards];
+  const { rarity, position, team, search } = currentData.filters;
+  if (rarity !== 'all') filtered = filtered.filter(c => c.rarity === rarity);
+  if (position !== 'all') filtered = filtered.filter(c => c.player.position === position);
+  if (team !== 'all') filtered = filtered.filter(c => c.player.team.abbreviation === team);
+  if (search) {
+    const term = search.toLowerCase();
+    filtered = filtered.filter(c => c.player.displayName.toLowerCase().includes(term));
+  }
+  currentData.filteredCards = filtered;
+}
+
+// Rendering carte e lineup (mantieni la tua implementazione esistente)
+function renderCards() { /* ... */ }
+function createCardHTML(card) { /* ... */ }
+function updateStats() { /* ... */ }
+function updateConnectionStatus(isConnected) { /* ... */ }
+
+// Gestione lineup
+function addToLineup(id) { /* ... */ }
+function removeFromLineup(id) { /* ... */ }
+function clearLineup() { /* ... */ }
+function optimizeLineup() { /* ... */ }
+function updateLineupDisplay() { /* ... */ }
+
+// Notifiche e caricamento
+function showLoading(msg = 'Caricamento...') { /* ... */ }
+function hideLoading() { /* ... */ }
+function showSuccessNotification(msg) { /* ... */ }
+function showErrorNotification(msg) { /* ... */ }
+
+// Esporta per test, se necessario
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { applyFilters, loadDemoData, loadLiveDataWithFallback };
 }
