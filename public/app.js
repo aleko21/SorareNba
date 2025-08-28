@@ -39,14 +39,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // REDIRECT al login endpoint
 function startLogin() {
-  window.location.href = '/api/auth/login';
+  window.location.href = '/api/auth/login.js';
 }
 
 // Ricarica dati live con fallback demo
 async function loadLiveDataWithFallback() {
   try {
     showLoading('Connessione all\'API Sorare...');
-    const response = await fetch('/api/cards');
+    const response = await fetch('/api/cards.js');
     const data = await response.json();
 
     if (response.status === 401 && data.loginUrl) {
