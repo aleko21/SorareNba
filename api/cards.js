@@ -17,14 +17,14 @@ export default async function handler(req, res) {
     const jwt = jwtMatch[1];
     const { default: fetch } = await import('node-fetch');
 
-    // Query senza filtro sport
-    const queryAllCards = `
+    // QUERY: senza filtri rarities
+    const correctNBAQuery = `
       query {
         currentUser {
           id
           slug
           nickname
-          cards(first: 200) {
+          cards(first: 100, sport: NBA) {
             totalCount
             nodes {
               name
@@ -63,7 +63,7 @@ export default async function handler(req, res) {
         'JWT-AUD': 'sorare-nba-manager',
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ query: queryAllCards })
+      body: JSON.stringify({ query: correctNBAQuery })
     });
 
     if (!response.ok) {
@@ -79,14 +79,12 @@ export default async function handler(req, res) {
     const userData = data.currentUser;
     const allCards = userData.cards.nodes || [];
 
-    // FILTRO: solo carte NBA Limited
-    const limitedNBACards = allCards.filter(card =>
-      card.anyPlayer?.__typename === 'NBAPlayer' &&
-      card.rarityTyped?.toUpperCase() === 'LIMITED'
-    );
-
-    // Aggiungi proiezioni simulate
-    const cardsWithProjections = limitedNBACards.map(card => ({
+    // FILTRO: solo carte Limited
+const limitedCards = allCards.filter(card =>
+  card.rarityTyped?.toUpperCase() === 'LIMITED'
+);
+    // AGGIUNGI PROIEZIONI alle Limited
+    const cardsWithProjections = limitedCards.map(card => ({
       id: card.slug,
       slug: card.slug,
       name: card.name,
@@ -103,8 +101,8 @@ export default async function handler(req, res) {
         position: card.anyPlayer.anyPositions?.[0] || null,
         age: card.anyPlayer.age,
         team: {
-          name: card.anyPlayer.activeClub?.name || '',
-          abbreviation: card.anyPlayer.activeClub?.slug?.slice(0,3).toUpperCase() || ''
+          name: card.anyPlayer.activeClub?.name,
+          abbreviation: card.anyPlayer.activeClub?.slug?.slice(0,3).toUpperCase()
         }
       },
       projection: Math.round((Math.random() * 30 + 40) * 10) / 10,
