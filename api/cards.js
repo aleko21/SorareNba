@@ -26,7 +26,7 @@ export default async function handler(req, res) {
           id
           slug
           nickname
-          cards(first: 100, sport: NBA) {
+          cards(first: 100, sport: NBA, rarities: [LIMITED]) {
             totalCount
             nodes {
               name
