@@ -42,6 +42,79 @@ const nbaQuery = `
   }
 `;
 
+// api/cards.js - Query di debug per trovare carte NBA
+
+const debugQuery = `
+  query {
+    currentUser {
+      id
+      slug
+      nickname
+      
+      # Test 1: Tutte le carte
+      cards(first: 100) {
+        totalCount
+        nodes {
+          id
+          name
+          rarity
+          sport {
+            name
+            slug
+          }
+          player: anyPlayer {
+            __typename
+            ... on NBAPlayer {
+              displayName
+              position
+              team: activeClub {
+                name
+                abbreviation
+              }
+            }
+            ... on Player {
+              displayName
+              position
+              activeClub {
+                name
+              }
+            }
+          }
+        }
+      }
+      
+      # Test 2: Filtra solo NBA se possibile
+      nbaCards: cards(first: 100, sportFilter: { slug: "nba" }) {
+        totalCount
+        nodes {
+          id
+          name
+          rarity
+        }
+      }
+    }
+  }
+`;
+
+// Poi nel processing dei dati:
+console.log('=== DEBUG CARTE ===');
+console.log('Totale carte:', data.data?.currentUser?.cards?.totalCount);
+console.log('Carte NBA filtrate:', data.data?.currentUser?.nbaCards?.totalCount);
+
+const allCards = data.data?.currentUser?.cards?.nodes || [];
+const nbaFilteredCards = data.data?.currentUser?.nbaCards?.nodes || [];
+
+// Mostra info su tutte le carte
+console.log('Tutte le carte:');
+allCards.forEach((card, index) => {
+  console.log(`${index + 1}. ${card.name} (${card.rarity}) - Sport: ${card.sport?.name} - Player: ${card.player?.__typename}`);
+});
+
+// Usa le carte che hai trovato
+const cardsToUse = nbaFilteredCards.length > 0 ? nbaFilteredCards : 
+                   allCards.filter(card => card.player?.__typename === 'NBAPlayer');
+
+console.log('Carte NBA trovate:', cardsToUse.length);
 
     const response = await fetch('https://api.sorare.com/graphql', {
       method: 'POST',
