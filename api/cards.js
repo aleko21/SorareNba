@@ -28,40 +28,20 @@ export default async function handler(req, res) {
 
     console.log('🏀 Caricando carte NBA con JWT salvato...');
 
-    const nbaQuery = `
-      query {
-        currentUser {
-          id
-          slug
-          nickname
-          nbaCards {
-            totalCount
-            nodes {
-              id
-              slug
-              name
-              rarity
-              serialNumber
-              pictureUrl
-              xp
-              grade
-              seasonYear
-              player {
-                displayName
-                slug
-                position
-                age
-                team {
-                  name
-                  abbreviation
-                }
-              }
-              onSale
-            }
-          }
-        }
+    // In api/cards.js, sostituisci la query con:
+const nbaQuery = `
+  query {
+    currentUser {
+      id
+      slug
+      nickname
+      nbaUserProfile {
+        id
       }
-    `;
+    }
+  }
+`;
+
 
     const response = await fetch('https://api.sorare.com/graphql', {
       method: 'POST',
