@@ -1,12 +1,12 @@
-// api/cards.js - Query corretta usando la documentazione ufficiale
+// api/cards.js
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  
+
   try {
     const SORARE_API_KEY = process.env.SORARE_API_KEY;
     const cookies = req.headers.cookie || '';
     const jwtMatch = cookies.match(/sorare_jwt=([^;]+)/);
-    
+
     if (!jwtMatch) {
       return res.status(401).json({
         error: 'Non autenticato',
@@ -17,48 +17,43 @@ export default async function handler(req, res) {
     const jwt = jwtMatch[1];
     const { default: fetch } = await import('node-fetch');
 
-    console.log('🏀 Caricando carte NBA con query documentazione ufficiale...');
-
-    // ✅ QUERY CORRETTA basata sullo schema ufficiale Sorare
-   const correctNBAQuery = `
-  query {
-    currentUser {
-      id
-      slug
-      nickname
-      cards(first: 100, sport: NBA, filters: { rarities: [LIMITED] }) {
-        totalCount
-        nodes {
-          name
+    // QUERY: senza filtri rarities
+    const correctNBAQuery = `
+      query {
+        currentUser {
+          id
           slug
-          rarityTyped
-          serialNumber
-          pictureUrl
-          xp
-          grade
-          seasonYear
-          sport
-          anyPlayer {
-            __typename
-            displayName
-            slug
-            anyPositions
-            age
-            ... on NBAPlayer {
-              displayName
-              activeClub {
-                name
+          nickname
+          cards(first: 100, sport: NBA) {
+            totalCount
+            nodes {
+              name
+              slug
+              rarityTyped
+              serialNumber
+              pictureUrl
+              xp
+              grade
+              seasonYear
+              anyPlayer {
+                __typename
+                displayName
                 slug
+                anyPositions
+                age
+                ... on NBAPlayer {
+                  activeClub {
+                    name
+                    slug
+                  }
+                }
               }
+              walletStatus
             }
           }
-          walletStatus
         }
       }
-    }
-  }
-`;
-
+    `;
 
     const response = await fetch('https://api.sorare.com/graphql', {
       method: 'POST',
@@ -68,53 +63,47 @@ export default async function handler(req, res) {
         'JWT-AUD': 'sorare-nba-manager',
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({
-        query: correctNBAQuery
-      })
+      body: JSON.stringify({ query: correctNBAQuery })
     });
 
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
 
-    const responseData = await response.json();
+    const { data, errors } = await response.json();
 
-    if (responseData.errors) {
-      console.error('GraphQL errors:', responseData.errors);
-      return res.status(400).json({
-        error: 'Errore GraphQL',
-        details: responseData.errors
-      });
+    if (errors) {
+      return res.status(400).json({ error: 'Errore GraphQL', details: errors });
     }
 
-    const userData = responseData.data?.currentUser;
-    const nbaCards = userData?.cards?.nodes || [];
-    
-    console.log('🎉 Carte NBA trovate:', nbaCards.length);
-    
-    // Processa le carte NBA reali
-    const cardsWithProjections = nbaCards.map(card => ({
-      id: card.slug || `nba-card-${Math.random()}`,
-      slug: card.slug || 'nba-card',
-      name: card.name || card.anyPlayer?.displayName || 'NBA Player',
-      rarity: card.rarityTyped?.toLowerCase() || 'common',
-      serialNumber: card.serialNumber || Math.floor(Math.random() * 1000) + 1,
-      pictureUrl: card.pictureUrl || `https://via.placeholder.com/200x300/ff6b35/white?text=${card.name?.split(' ').map(n => n[0]).join('') || 'NBA'}`,
-      xp: card.xp || Math.floor(Math.random() * 500) + 100,
-      grade: card.grade || 0,
-      seasonYear: card.seasonYear?.toString() || '2024',
-      onSale: card.walletStatus === 'MINTED' ? false : Math.random() > 0.8,
+    const userData = data.currentUser;
+    const allCards = userData.cards.nodes || [];
+
+    // FILTRO: solo carte Limited
+    const limitedCards = allCards.filter(card => card.rarityTyped === 'Limited');
+
+    // AGGIUNGI PROIEZIONI alle Limited
+    const cardsWithProjections = limitedCards.map(card => ({
+      id: card.slug,
+      slug: card.slug,
+      name: card.name,
+      rarity: card.rarityTyped.toLowerCase(),
+      serialNumber: card.serialNumber,
+      pictureUrl: card.pictureUrl,
+      xp: card.xp,
+      grade: card.grade,
+      seasonYear: card.seasonYear,
+      onSale: card.walletStatus !== 'MINTED',
       player: {
-        displayName: card.anyPlayer?.displayName || card.name || 'NBA Player',
-        slug: card.anyPlayer?.slug || card.slug || 'nba-player',
-        position: card.anyPlayer?.anyPositions?.[0] || ['PG', 'SG', 'SF', 'PF', 'C'][Math.floor(Math.random() * 5)],
-        age: card.anyPlayer?.age || Math.floor(Math.random() * 15) + 20,
+        displayName: card.anyPlayer.displayName,
+        slug: card.anyPlayer.slug,
+        position: card.anyPlayer.anyPositions?.[0] || null,
+        age: card.anyPlayer.age,
         team: {
-          name: card.anyPlayer?.activeClub?.name || 'NBA Team',
-          abbreviation: card.anyPlayer?.activeClub?.slug?.substring(0, 3).toUpperCase() || 'NBA'
+          name: card.anyPlayer.activeClub?.name,
+          abbreviation: card.anyPlayer.activeClub?.slug?.slice(0,3).toUpperCase()
         }
       },
-      // Aggiungi proiezioni simulate
       projection: Math.round((Math.random() * 30 + 40) * 10) / 10,
       last10avg: Math.round((Math.random() * 25 + 35) * 10) / 10,
       games_this_week: Math.floor(Math.random() * 4) + 1,
@@ -125,16 +114,13 @@ export default async function handler(req, res) {
       success: true,
       data: cardsWithProjections,
       count: cardsWithProjections.length,
-      totalCount: userData?.cards?.totalCount || 0,
+      totalCount: userData.cards.totalCount,
       user: {
-        nickname: userData?.nickname,
-        slug: userData?.slug
+        nickname: userData.nickname,
+        slug: userData.slug
       },
-      message: cardsWithProjections.length > 0 
-        ? `🎉🏀 ${cardsWithProjections.length} carte NBA REALI di ${userData?.nickname}!`
-        : `🤔 ${userData?.nickname}, sembra che tu non abbia carte NBA, o sono in una sezione diversa`,
-      authMethod: 'JWT + API Key (documentazione ufficiale)',
-      queryUsed: 'cards(sport: NBA) - Schema ufficiale Sorare',
+      message: `🎉🏀 ${cardsWithProjections.length} carte NBA Limited di ${userData.nickname}!`,
+      authMethod: 'JWT + API Key',
       timestamp: new Date().toISOString()
     });
 
@@ -142,8 +128,7 @@ export default async function handler(req, res) {
     console.error('Cards error:', error);
     res.status(500).json({
       error: 'Errore caricamento carte',
-      message: error.message,
-      stack: error.stack
+      message: error.message
     });
   }
 }
