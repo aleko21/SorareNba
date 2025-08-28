@@ -1,4 +1,5 @@
 // SorareNBA Manager - Application Logic with Live API Integration
+let otpChallenge = null;
 
 // Global variables
 let limitedCards = [];
@@ -18,7 +19,56 @@ const API_CONFIG = {
 // Initialize the application
 document.addEventListener('DOMContentLoaded', function() {
     initializeApp();
-    
+
+document.getElementById('login-btn').addEventListener('click', startLogin);
+async function startLogin() {
+  showLoading('Invio richiesta login…');
+  try {
+    const res = await fetch('/api/auth/login');
+    const data = await res.json();
+    hideLoading();
+    if (data.requiresTwoFA) {
+      otpChallenge = data.otpSessionChallenge;
+      document.getElementById('twofa-modal').classList.remove('hidden');
+    } else if (data.hasJWT) {
+      onLoginSuccess();
+    }
+  } catch (err) {
+    hideLoading();
+    alert('Errore login: ' + err.message);
+  }
+}
+
+document.getElementById('twofa-submit').addEventListener('click', async () => {
+  const code = document.getElementById('twofa-input').value.trim();
+  if (code.length !== 6) {
+    document.getElementById('twofa-error').textContent = 'Inserisci 6 cifre';
+    return;
+  }
+  document.getElementById('twofa-error').textContent = '';
+  showLoading('Verifica codice 2FA…');
+  try {
+    const url = `/api/auth/login?code=${code}&challenge=${encodeURIComponent(otpChallenge)}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    hideLoading();
+    if (data.success && data.hasJWT) {
+      document.getElementById('twofa-modal').classList.add('hidden');
+      onLoginSuccess();
+    } else {
+      document.getElementById('twofa-error').textContent = data.error || 'Codice non valido';
+    }
+  } catch (err) {
+    hideLoading();
+    document.getElementById('twofa-error').textContent = 'Errore di verifica';
+  }
+});
+
+function onLoginSuccess() {
+  document.getElementById('login-container').remove();
+  showSuccessNotification('Login completato!');
+  loadLiveDataWithFallback();
+}
     // Try to load live data first, fallback to demo data
     loadLiveDataWithFallback();
 });
