@@ -10,37 +10,17 @@ export default async function handler(req, res) {
       return res.status(401).json({ error: 'Non autenticato', loginUrl: '/api/auth/login' });
     }
     const jwt = jwtMatch[1];
-    const { default: fetch } = await import('node-fetch');
+    const fetch = (await import('node-fetch')).default;
 
-    // 1) Query preliminare per totalCount
-    const countQuery = `
-      query {
+    // Query paginata
+    const QUERY = `
+      query CardsPage($first: Int!, $after: String) {
         currentUser {
-          cards(first: 0, sport: NBA) {
-            totalCount
-          }
-        }
-      }
-    `;
-    const countResp = await fetch('https://api.sorare.com/graphql', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${jwt}`,
-        'APIKEY': SORARE_API_KEY,
-        'JWT-AUD': 'sorare-nba-manager',
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ query: countQuery })
-    });
-    const countData = await countResp.json();
-    const total = countData.data.currentUser.cards.totalCount;
-
-    // 2) Query “bulk” con first = total
-    const bulkQuery = `
-      query CardsAll($first: Int!) {
-        currentUser {
-          nickname
-          cards(first: $first, sport: NBA) {
+          cards(first: $first, sport: NBA, after: $after) {
+            pageInfo {
+              hasNextPage
+              endCursor
+            }
             nodes {
               name
               slug
@@ -55,33 +35,46 @@ export default async function handler(req, res) {
                 slug
                 anyPositions
                 age
-                ... on NBAPlayer {
-                  activeClub { name slug }
-                }
+                ... on NBAPlayer { activeClub { name slug } }
               }
               walletStatus
             }
+            totalCount
           }
         }
       }
     `;
-    const bulkResp = await fetch('https://api.sorare.com/graphql', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${jwt}`,
-        'APIKEY': SORARE_API_KEY,
-        'JWT-AUD': 'sorare-nba-manager',
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ query: bulkQuery, variables: { first: total } })
-    });
-    const bulkData = await bulkResp.json();
-    if (bulkData.errors) throw new Error(bulkData.errors[0].message);
 
-    // Filtra e mappa le Limited
-    const allCards = bulkData.data.currentUser.cards.nodes;
-    const limited = allCards.filter(c => c.rarityTyped?.toUpperCase() === 'LIMITED');
-    const cardsWithProjections = limited.map(card => ({
+    let allNodes = [];
+    let cursor = null;
+    let hasNextPage = true;
+
+    // Ciclo finché hasNextPage = true
+    while (hasNextPage) {
+      const resp = await fetch('https://api.sorare.com/graphql', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${jwt}`,
+          'APIKEY': SORARE_API_KEY,
+          'JWT-AUD': 'sorare-nba-manager',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ query: QUERY, variables: { first: 50, after: cursor } })
+      });
+      const { data, errors } = await resp.json();
+      if (errors) throw new Error(errors[0].message);
+
+      const page = data.currentUser.cards;
+      allNodes.push(...page.nodes);
+      hasNextPage = page.pageInfo.hasNextPage;
+      cursor = page.pageInfo.endCursor;
+    }
+
+    // Filtra solo Limited
+    const limited = allNodes.filter(c => c.rarityTyped?.toUpperCase() === 'LIMITED');
+
+    // Mappa con proiezioni
+    const cards = limited.map(card => ({
       id: card.slug,
       slug: card.slug,
       name: card.name,
@@ -108,19 +101,18 @@ export default async function handler(req, res) {
       efficiency: Math.round((Math.random()*0.5+1)*100)/100
     }));
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-      data: cardsWithProjections,
-      count: cardsWithProjections.length,
-      totalCount: total,
-      user: { nickname: bulkData.data.currentUser.nickname },
-      message: `🎉🏀 ${cardsWithProjections.length} carte NBA Limited di ${bulkData.data.currentUser.nickname}!`,
-      authMethod: 'JWT + API Key (bulk fetch)',
+      data: cards,
+      count: cards.length,
+      totalCount: allNodes.length,
+      message: `🎉🏀 ${cards.length} carte NBA Limited caricate!`,
+      authMethod: 'JWT + API Key (paginazione)',
       timestamp: new Date().toISOString()
     });
 
   } catch (error) {
     console.error('Cards error:', error);
-    res.status(500).json({ error: 'Errore caricamento carte', message: error.message });
+    return res.status(500).json({ error: 'Errore caricamento carte', message: error.message });
   }
 }
